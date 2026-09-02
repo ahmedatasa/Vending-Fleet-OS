@@ -18,14 +18,14 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { InventoryTransaction, TransactionType, NavigationTab, SparePart } from '../../types';
-import { api, SEED_SPARE_PARTS } from '../../services/api';
+import { api } from '../../services/api';
 
 interface InventoryViewProps {
   onNavigate: (tab: NavigationTab, id?: string) => void;
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigate }) => {
-  const { t, formatDate } = useLanguage();
+  const { t, formatDate, language } = useLanguage();
   const { showToast } = useNotification();
   const { canManageInventory } = useAuth();
 
@@ -43,9 +43,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigate }) => {
   const [notes, setNotes] = useState('Supplier stock replenishment delivery');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const loadData = async () => {
+  const isAr = language === 'ar';
+
+  const loadData = async (showLoading = true) => {
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       const [txData, partsData] = await Promise.all([
         api.getInventoryTransactions(),
         api.getSpareParts(true)
@@ -57,23 +59,30 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigate }) => {
         setUnitCost(partsData[0].unitCost);
       }
     } catch {
-      showToast(t('error'), 'Failed to load inventory transactions', 'error');
+      if (showLoading) {
+        showToast(t('error'), 'Failed to load inventory transactions', 'error');
+      }
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(true);
 
+    let debounceTimer: any = null;
     const handleUpdate = () => {
-      loadData();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadData(false);
+      }, 300);
     };
 
     window.addEventListener('vending-fleet-data-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
     return () => {
+      clearTimeout(debounceTimer);
       window.removeEventListener('vending-fleet-data-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
@@ -103,7 +112,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigate }) => {
 
       showToast(t('success'), `Stock movement logged successfully!`, 'success');
       setIsPostOpen(false);
-      await loadData();
+      await loadData(false);
     } catch (err: any) {
       showToast(t('error'), err.message || 'Failed to post inventory transaction', 'error');
     } finally {
@@ -123,16 +132,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigate }) => {
     {
       key: 'sparePart',
       header: t('spareParts'),
-      render: row => (
-        <div>
-          <span className="font-mono font-bold text-slate-100 text-xs">
-            {row.sparePart?.partNumber || 'SKU'}
-          </span>
-          <span className="text-[11px] text-slate-400 block truncate max-w-xs">
-            {row.sparePart?.name}
-          </span>
-        </div>
-      )
+      render: row => {
+        const part = row.sparePart || (row as any).part || spareParts.find(p => p.id === (row.sparePartId || (row as any).partId));
+        return (
+          <div>
+            <span className="font-mono font-bold text-slate-100 text-xs">
+              {part?.partNumber || (row as any).partNumber || 'SKU'}
+            </span>
+            <span className="text-[11px] text-slate-400 block truncate max-w-xs">
+              {(isAr && part?.nameAr) ? part.nameAr : (part?.name || (row as any).partName || 'Spare Part')}
+            </span>
+          </div>
+        );
+      }
     },
     {
       key: 'transactionType',

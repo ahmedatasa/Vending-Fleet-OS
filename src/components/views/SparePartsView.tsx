@@ -70,29 +70,38 @@ export const SparePartsView: React.FC<SparePartsViewProps> = ({ onNavigate }) =>
 
   const isAr = language === 'ar';
 
-  const loadParts = async () => {
+  const loadParts = async (showLoading = true) => {
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       const data = await api.getSpareParts();
-      setParts(data);
+      if (Array.isArray(data)) {
+        setParts(data);
+      }
     } catch {
-      showToast(t('error'), 'Failed to load spare parts', 'error');
+      if (showLoading) {
+        showToast(t('error'), 'Failed to load spare parts', 'error');
+      }
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadParts();
+    loadParts(true);
 
+    let debounceTimer: any = null;
     const handleUpdate = () => {
-      loadParts();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadParts(false);
+      }, 300);
     };
 
     window.addEventListener('vending-fleet-data-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
     return () => {
+      clearTimeout(debounceTimer);
       window.removeEventListener('vending-fleet-data-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
@@ -180,32 +189,66 @@ export const SparePartsView: React.FC<SparePartsViewProps> = ({ onNavigate }) =>
   };
 
   const handlePromptDeletePart = async (part: SparePart) => {
-    const refs = await api.checkSparePartReferences(part.id);
     setConfirmModal({
       isOpen: true,
-      title: `Delete Spare Part SKU: ${part.partNumber}`,
-      description: refs.canDelete
-        ? `Are you sure you want to permanently delete part ${part.partNumber}?`
-        : `This part has active references (${refs.referenceCounts.map(r => `${r.count} ${r.label}`).join(', ')}). You cannot delete a catalog SKU with active records. You can deactivate it instead.`,
-      warningMessage: refs.canDelete ? 'This will archive the spare part SKU.' : 'Active inventory/ticket dependencies exist.',
-      requireReason: true,
-      referenceCounts: refs.referenceCounts,
-      isDeactivation: !refs.canDelete,
+      title: isAr ? `حذف قطعة الغيار: ${part.partNumber}` : `Delete Spare Part SKU: ${part.partNumber}`,
+      description: isAr
+        ? `هل أنت متأكد من رغبتك في حذف قطعة الغيار "${part.nameAr || part.name}" (${part.partNumber}) نهائياً من قاعدة البيانات؟`
+        : `Are you sure you want to permanently delete part "${part.name}" (${part.partNumber}) from the database?`,
+      warningMessage: isAr ? 'سيتم حذف القطعة فوراً من قائمة قطع الغيار.' : 'This will permanently remove the spare part from inventory.',
+      requireReason: false,
+      isDeactivation: false,
       onConfirm: async (reason?: string) => {
-        if (refs.canDelete) {
-          await api.deleteSparePart(part.id, false, reason);
-          showToast(t('success'), `Spare Part ${part.partNumber} deleted!`, 'success');
-        } else {
-          await api.deactivateSparePart(part.id, reason);
-          showToast(t('success'), `Spare Part ${part.partNumber} deactivated!`, 'success');
+        try {
+          await api.deleteSparePart(part.id, true, reason);
+          showToast(t('success'), isAr ? `تم حذف قطعة الغيار ${part.partNumber} بنجاح!` : `Spare Part ${part.partNumber} deleted!`, 'success');
+          await loadParts();
+        } catch (err: any) {
+          showToast(t('error'), err.message || 'Failed to delete part', 'error');
         }
-        await loadParts();
       }
     });
   };
 
+  const categoriesList = React.useMemo(() => {
+    const defaultCats = [
+      { id: 'ALL', label: isAr ? 'جميع الفئات' : 'All Categories' },
+      { id: 'REFRIGERATION', label: isAr ? 'التبريد والتكييف' : 'Refrigeration & Cooling' },
+      { id: 'PAYMENT', label: isAr ? 'أنظمة الدفع والحساسات' : 'Payment & Validation' },
+      { id: 'ELECTRICAL', label: isAr ? 'الكهرباء والطاقة' : 'Electrical & Power' },
+      { id: 'BEVERAGE_SYSTEM', label: isAr ? 'أنظمة المشروبات والقهوة' : 'Beverage & Coffee' },
+      { id: 'DISPENSING', label: isAr ? 'محركات واليات الصرف' : 'Dispensing Mechanics' },
+      { id: 'GENERAL', label: isAr ? 'عام ومستهلكات' : 'General & Consumables' },
+    ];
+    
+    // Add any unique categories found in parts
+    const seen = new Set(defaultCats.map(c => c.id.toUpperCase()));
+    parts.forEach(p => {
+      const catKey = typeof p.category === 'object' && p.category !== null
+        ? ((p.category as any).name || (p.category as any).id)
+        : p.category;
+      if (catKey && !seen.has(String(catKey).toUpperCase())) {
+        seen.add(String(catKey).toUpperCase());
+        defaultCats.push({
+          id: String(catKey),
+          label: String(catKey)
+        });
+      }
+    });
+    return defaultCats;
+  }, [parts, isAr]);
+
   const filteredParts = parts.filter(p => {
-    if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false;
+    if (categoryFilter !== 'ALL') {
+      const catKey = typeof p.category === 'object' && p.category !== null
+        ? ((p.category as any).name || (p.category as any).id || (p.category as any).slug)
+        : String(p.category || '');
+      const catId = p.categoryId || '';
+      
+      const filterUpper = categoryFilter.toUpperCase();
+      const matchCat = catKey?.toUpperCase() === filterUpper || catId?.toUpperCase() === filterUpper;
+      if (!matchCat) return false;
+    }
     return true;
   });
 
@@ -343,6 +386,15 @@ export const SparePartsView: React.FC<SparePartsViewProps> = ({ onNavigate }) =>
           <Button
             variant="outline"
             size="sm"
+            onClick={() => loadParts(true)}
+            title="Refresh spare parts catalog"
+          >
+            {isAr ? 'تحديث' : 'Refresh'}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
             icon={Boxes}
             onClick={() => onNavigate('inventory')}
           >
@@ -373,12 +425,11 @@ export const SparePartsView: React.FC<SparePartsViewProps> = ({ onNavigate }) =>
             onChange={e => setCategoryFilter(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
           >
-            <option value="ALL">Category: All</option>
-            <option value="REFRIGERATION">Refrigeration</option>
-            <option value="PAYMENT">Payment</option>
-            <option value="ELECTRICAL">Electrical</option>
-            <option value="BEVERAGE_SYSTEM">Beverage & Espresso</option>
-            <option value="DISPENSING">Dispensing Mechanics</option>
+            {categoriesList.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
           </select>
         }
       />

@@ -34,7 +34,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { PartRequest, NavigationTab, PartRequestStatus } from '../../types';
-import { api, SEED_SPARE_PARTS, SEED_TICKETS, SEED_SUPPLIERS } from '../../services/api';
+import { api } from '../../services/api';
 
 interface PartRequestsViewProps {
   onNavigate: (tab: NavigationTab, id?: string) => void;
@@ -46,14 +46,21 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
   const { canManageInventory, isAdmin } = useAuth();
 
   const [requests, setRequests] = useState<any[]>([]);
+  const [liveTickets, setLiveTickets] = useState<any[]>([]);
+  const [liveSpareParts, setLiveSpareParts] = useState<any[]>([]);
+  const [liveSuppliers, setLiveSuppliers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [activeCategory, setActiveCategory] = useState<'ACTIVE_PENDING' | 'ISSUED' | 'ALL' | 'CANCELLED_REJECTED'>('ACTIVE_PENDING');
 
   // New Request Modal
   const [isNewOpen, setIsNewOpen] = useState(false);
-  const [ticketId, setTicketId] = useState(SEED_TICKETS[0]?.id || '');
-  const [partId, setPartId] = useState(SEED_SPARE_PARTS[0]?.id || '');
+  const [ticketId, setTicketId] = useState('');
+  const [partId, setPartId] = useState('');
+  const [isCustomPart, setIsCustomPart] = useState(false);
+  const [customPartName, setCustomPartName] = useState('');
+  const [customPartSku, setCustomPartSku] = useState('');
+  const [customUnitCost, setCustomUnitCost] = useState('');
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState('');
 
@@ -68,7 +75,7 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
   const [isOrderOpen, setIsOrderOpen] = useState(false);
   const [orderTargetReq, setOrderTargetReq] = useState<any | null>(null);
   const [poNumber, setPoNumber] = useState('');
-  const [supplierId, setSupplierId] = useState(SEED_SUPPLIERS[0]?.id || '');
+  const [supplierId, setSupplierId] = useState('');
   const [expectedDate, setExpectedDate] = useState(new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0]);
 
   // Receive Delivery Modal (إذن استلام وتوريد للمخزن)
@@ -76,7 +83,7 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
   const [receiveTargetReq, setReceiveTargetReq] = useState<any | null>(null);
   const [receivedQty, setReceivedQty] = useState(1);
   const [deliveryNoteNumber, setDeliveryNoteNumber] = useState('');
-  const [storageLocation, setStorageLocation] = useState('Rack A-02');
+  const [storageLocation, setStorageLocation] = useState('Central Warehouse Depot');
   const [inspectionNotes, setInspectionNotes] = useState('تم الفحص والتأكد من مطابقة المواصفات الفنية');
 
   // Issue to Tech Modal (أمر صرف وتسليم للصيانة)
@@ -104,29 +111,54 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
     onConfirm: async () => {}
   });
 
-  const loadRequests = async () => {
+  const loadRequests = async (showLoading = true) => {
     try {
-      setIsLoading(true);
-      const data = await api.getPartRequests();
-      setRequests(data);
+      if (showLoading) setIsLoading(true);
+      const [reqData, partsData, ticketsData, supData] = await Promise.all([
+        api.getPartRequests(),
+        api.getSpareParts().catch(() => []),
+        api.getTickets().catch(() => []),
+        api.getSuppliers().catch(() => [])
+      ]);
+      setRequests(reqData);
+      setLiveSpareParts(partsData || []);
+      setLiveTickets(ticketsData || []);
+      setLiveSuppliers(supData || []);
+
+      if (!ticketId && ticketsData && ticketsData.length > 0) {
+        setTicketId(ticketsData[0].id);
+      }
+      if (!partId && partsData && partsData.length > 0) {
+        setPartId(partsData[0].id);
+      }
+      if (!supplierId && supData && supData.length > 0) {
+        setSupplierId(supData[0].id);
+      }
     } catch {
-      showToast(t('error'), 'Failed to load part requests', 'error');
+      if (showLoading) {
+        showToast(t('error'), 'Failed to load part requests', 'error');
+      }
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadRequests();
+    loadRequests(true);
 
+    let debounceTimer: any = null;
     const handleUpdate = () => {
-      loadRequests();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadRequests(false);
+      }, 300);
     };
 
     window.addEventListener('vending-fleet-data-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
     return () => {
+      clearTimeout(debounceTimer);
       window.removeEventListener('vending-fleet-data-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
@@ -143,6 +175,9 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
       actor?: string;
       autoReplenish?: boolean;
       autoIssue?: boolean;
+      storageLocation?: string;
+      deliveryNoteNumber?: string;
+      unitCost?: number;
     }
   ) => {
     try {
@@ -151,14 +186,14 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
       if (status === 'RECEIVED') {
         showToast(
           'تم الاستلام والتوريد للمخزن 📦',
-          'تمت إضافة الكمية لرصيد المخزن وإرسال بلاغ فوري لقسم الصيانة بتوفر القطعة!',
+          'تم تسجيل القطعة في دليل قطع الغيار وإيداع الكمية بالرصيد وإرسال إشعار فوري لقسم الصيانة بتوفر القطعة!',
           'success',
           5000
         );
       } else if (status === 'ISSUED') {
         showToast(
           'تم صرف القطعة واستئناف التذكرة ⚡',
-          'تم خصم الكمية من المستودع وتحويل حالة البلاغ تلقائياً إلى قيد العمل (IN_PROGRESS)!',
+          'تم خصم الكمية من المستودع وتحويل حالة البلاغ تلقائياً إلى [قيد الإصلاح - IN_PROGRESS] مع إشعار الصيانة!',
           'success',
           5000
         );
@@ -185,14 +220,22 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const selectedPart = liveSpareParts.find(p => p.id === partId);
       await api.createPartRequest({
-        ticketId,
-        sparePartId: partId,
+        ticketId: ticketId || liveTickets[0]?.id,
+        sparePartId: isCustomPart ? undefined : (partId || liveSpareParts[0]?.id),
+        partName: isCustomPart ? customPartName : (selectedPart?.nameAr || selectedPart?.name),
+        partNumber: isCustomPart ? customPartSku : selectedPart?.partNumber,
+        unitCost: isCustomPart ? Number(customUnitCost) : selectedPart?.unitCost,
         quantity: Number(qty),
         notes
       });
-      showToast(t('success'), 'تم تقديم طلب قطعة الغيار إلى إدارة المخزن بنجاح!', 'success');
+      showToast(t('success'), 'تم تقديم طلب قطعة الغيار إلى إدارة المخزن والمشتريات بنجاح!', 'success');
       setIsNewOpen(false);
+      setCustomPartName('');
+      setCustomPartSku('');
+      setCustomUnitCost('');
+      setIsCustomPart(false);
       await loadRequests();
     } catch (err: any) {
       showToast(t('error'), err.message || 'Failed to submit request', 'error');
@@ -257,7 +300,7 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
   const openOrderModal = (req: any) => {
     setOrderTargetReq(req);
     setPoNumber(req.poNumber || `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
-    setSupplierId(req.supplierId || SEED_SUPPLIERS[0]?.id || '');
+    setSupplierId(req.supplierId || liveSuppliers[0]?.id || '');
     setExpectedDate(new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0]);
     setIsOrderOpen(true);
   };
@@ -890,13 +933,13 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
                 المورد المعتمد *
               </label>
               <select
-                value={supplierId}
+                value={supplierId || (liveSuppliers[0]?.id || '')}
                 onChange={e => setSupplierId(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
               >
-                {SEED_SUPPLIERS.map(s => (
+                {liveSuppliers.map(s => (
                   <option key={s.id} value={s.id}>
-                    {s.name} (مدة التوريد: {s.leadTimeDays} أيام)
+                    {s.name} {s.leadTimeDays ? `(مدة التوريد: ${s.leadTimeDays} أيام)` : ''}
                   </option>
                 ))}
               </select>
@@ -931,8 +974,8 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
                 className="bg-purple-600 hover:bg-purple-700"
                 onClick={() =>
                   handleUpdateStatus(orderTargetReq.id, 'ORDERED', {
-                    poNumber,
-                    supplierId,
+                    poNumber: poNumber || `PO-${Date.now().toString().slice(-6)}`,
+                    supplierId: supplierId || (liveSuppliers[0]?.id || ''),
                     expectedDeliveryDate: expectedDate
                   })
                 }
@@ -988,6 +1031,7 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
                 </label>
                 <input
                   type="text"
+                  placeholder="DN-2026-001"
                   value={deliveryNoteNumber}
                   onChange={e => setDeliveryNoteNumber(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500 font-mono"
@@ -1026,7 +1070,7 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
                 <span>إرسال إشعار فوري وتحديث بلاغ الصيانة</span>
               </div>
               <p className="text-[11px] text-indigo-200/80 leading-relaxed">
-                بمجرد تأكيد الاستلام، سيتم تلقائياً إضافة الكمية إلى رصيد المخزن، وإرسال بلاغ فوري لقسم الصيانة والدعم الفني بأن القطعة وصلت وأصبحت متوفرة بالمستودع وجاهزة للصرف لاستكمال دورة الإصلاح.
+                بمجرد تأكيد الاستلام، سيتم تلقائياً إدراج القطعة في دليل قطع الغيار وإيداع الكمية بالرصيد، وإرسال إشعار فوري لقسم الصيانة والدعم الفني بأن القطعة جاهزة للصرف لاستكمال الإصلاح.
               </p>
             </div>
 
@@ -1042,8 +1086,10 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
                 className="bg-indigo-600 hover:bg-indigo-700"
                 onClick={() =>
                   handleUpdateStatus(receiveTargetReq.id, 'RECEIVED', {
-                    poNumber: receiveTargetReq.poNumber || deliveryNoteNumber,
-                    comment: `تم استلام الشحنة وتوريدها للمخزن بموجب إذن توريد ${deliveryNoteNumber} (${storageLocation})`
+                    poNumber: receiveTargetReq.poNumber || deliveryNoteNumber || `PO-${Date.now().toString().slice(-6)}`,
+                    deliveryNoteNumber: deliveryNoteNumber || `DN-${Date.now().toString().slice(-6)}`,
+                    storageLocation,
+                    comment: `تم استلام الشحنة وتوريدها للمخزن بموجب إذن توريد ${deliveryNoteNumber || 'N/A'} (${storageLocation}): ${inspectionNotes}`
                   })
                 }
               >
@@ -1096,10 +1142,10 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
             <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-1">
               <div className="flex items-center gap-2 font-bold text-emerald-300">
                 <Truck className="w-4 h-4 text-emerald-400" />
-                <span>استئناف حالة البلاغ تلقائياً</span>
+                <span>استئناف حالة البلاغ تلقائياً إلى [قيد الإصلاح]</span>
               </div>
               <p className="text-[11px] text-emerald-200/80 leading-relaxed">
-                سيتم خصم الكمية من رصيد المستودع، وتحديث حالة البلاغ فورياً من (بانتظار قطعة غيار) إلى (قيد العمل - IN_PROGRESS) لتمكين الفني من استكمال أعمال الإصلاح والإغلاق.
+                سيتم خصم الكمية من رصيد المستودع، وتسجيل حركة الصرف، وتحديث حالة البلاغ فورياً إلى (قيد الإصلاح - IN_PROGRESS) مع إضافة إشعار وإجراء صيانة تلقائي.
               </p>
             </div>
 
@@ -1139,49 +1185,118 @@ export const PartRequestsView: React.FC<PartRequestsViewProps> = ({ onNavigate }
               {isRTL ? 'البلاغ المرتبط *' : 'Associated Incident Ticket *'}
             </label>
             <select
-              value={ticketId}
+              value={ticketId || (liveTickets[0]?.id || '')}
               onChange={e => setTicketId(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
             >
-              {SEED_TICKETS.map(tck => (
+              {liveTickets.map(tck => (
                 <option key={tck.id} value={tck.id}>
-                  {tck.ticketNumber} — {tck.machine?.machineNumber} ({typeof tck.category === 'object' && tck.category ? ((tck.category as any).nameAr || (tck.category as any).name || 'عام') : (tck.category || 'عام')})
+                  {tck.ticketNumber || tck.id} — {tck.machine?.machineNumber || tck.machineId || 'الماكينة'} ({tck.title || (typeof tck.category === 'object' && tck.category ? ((tck.category as any).nameAr || (tck.category as any).name || 'عام') : (tck.category || 'عام'))})
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">
-                {isRTL ? 'قطعة الغيار *' : 'Spare Part SKU *'}
-              </label>
-              <select
-                value={partId}
-                onChange={e => setPartId(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-              >
-                {SEED_SPARE_PARTS.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.partNumber} - {p.name} (رصيد المخزن: {p.currentQuantity})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">
-                {isRTL ? 'الكمية المطلوبة *' : 'Quantity Needed *'}
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={qty}
-                onChange={e => setQty(Number(e.target.value))}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500 font-mono"
-              />
-            </div>
+          <div className="flex items-center justify-between p-2 bg-slate-900 border border-slate-800 rounded-lg">
+            <span className="text-xs text-slate-300">
+              {isCustomPart ? 'طلب قطعة جديدة غير مدرجة بالدليل' : 'اختيار قطعة من دليل قطع الغيار'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsCustomPart(!isCustomPart)}
+              className="text-xs text-blue-400 hover:text-blue-300 font-semibold underline"
+            >
+              {isCustomPart ? '← اختر من الدليل' : '+ طلب قطعة غير موجودة بالدليل'}
+            </button>
           </div>
+
+          {!isCustomPart ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  {isRTL ? 'قطعة الغيار *' : 'Spare Part SKU *'}
+                </label>
+                <select
+                  value={partId || (liveSpareParts[0]?.id || '')}
+                  onChange={e => setPartId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                >
+                  {liveSpareParts.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.partNumber} - {p.nameAr || p.name} (رصيد المخزن: {p.currentQuantity || 0})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  {isRTL ? 'الكمية المطلوبة *' : 'Quantity Needed *'}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={qty}
+                  onChange={e => setQty(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 p-3 bg-slate-950 border border-blue-500/30 rounded-xl">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  اسم القطعة المطلوبة بالتفصيل *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مثال: مضخة مياه ضغط عالي 24V أو شاشة لمس 10 بوصة"
+                  value={customPartName}
+                  onChange={e => setCustomPartName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">
+                    رقم القطعة / الكود المرجعي (إن وجد)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="SKU-CUSTOM-001"
+                    value={customPartSku}
+                    onChange={e => setCustomPartSku(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">
+                    الكمية المطلوبة *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={qty}
+                    onChange={e => setQty(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  التكلفة التقديرية (ريال / SAR)
+                </label>
+                <input
+                  type="number"
+                  placeholder="150"
+                  value={customUnitCost}
+                  onChange={e => setCustomUnitCost(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-xs font-semibold text-slate-300 block mb-1">

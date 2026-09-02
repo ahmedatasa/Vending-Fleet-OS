@@ -20,7 +20,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { Supplier, NavigationTab } from '../../types';
-import { api, SEED_SUPPLIERS } from '../../services/api';
+import { api } from '../../services/api';
 
 interface SuppliersViewProps {
   onNavigate: (tab: NavigationTab, id?: string) => void;
@@ -31,8 +31,8 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ onNavigate }) => {
   const { showToast } = useNotification();
   const { canManageInventory, isAdmin } = useAuth();
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>(SEED_SUPPLIERS);
-  const [isLoading, setIsLoading] = useState(false);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Add Modal State
   const [isAddOpen, setIsAddOpen] = useState(false);

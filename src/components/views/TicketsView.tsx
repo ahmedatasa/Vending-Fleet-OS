@@ -159,6 +159,10 @@ export const TicketsView: React.FC<TicketsViewProps> = ({ onNavigate, initialAct
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) return;
+    if (machines.length === 0 || !machineId) {
+      showToast(t('error'), isRTL ? 'لا توجد ماكينات مسجلة لفتح البلاغ عليها. يرجى تسجيل ماكينة أولاً.' : 'No machines registered. Please register a machine first.', 'error');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -612,27 +616,43 @@ export const TicketsView: React.FC<TicketsViewProps> = ({ onNavigate, initialAct
                 className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 w-36"
               />
             </div>
-            <select
-              value={machineId}
-              onChange={e => setMachineId(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              {machines
-                .filter(m => {
-                  if (!machineSearchQuery.trim()) return true;
-                  const q = machineSearchQuery.toLowerCase();
-                  return (
-                    m.machineNumber.toLowerCase().includes(q) ||
-                    (m.currentLocation?.fullDescription || '').toLowerCase().includes(q) ||
-                    (m.currentLocation?.building?.name || '').toLowerCase().includes(q)
-                  );
-                })
-                .map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.machineNumber} — {m.currentLocation?.fullDescription || m.currentLocation?.areaZone || 'General Area'} ({m.status})
-                  </option>
-                ))}
-            </select>
+            {machines.length === 0 ? (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 text-xs flex items-center justify-between">
+                <span>{isRTL ? 'لا توجد ماكينات مسجلة حالياً في النظام. يرجى إضافة ماكينة أولاً.' : 'No machines registered currently. Please add a machine first.'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreateOpen(false);
+                    onNavigate('machines');
+                  }}
+                  className="underline hover:text-amber-200 font-semibold cursor-pointer ml-2"
+                >
+                  {isRTL ? 'إضافة ماكينة الآن' : 'Add Machine Now'}
+                </button>
+              </div>
+            ) : (
+              <select
+                value={machineId}
+                onChange={e => setMachineId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+              >
+                {machines
+                  .filter(m => {
+                    if (!machineSearchQuery.trim()) return true;
+                    const q = machineSearchQuery.toLowerCase();
+                    return (
+                      m.machineNumber.toLowerCase().includes(q) ||
+                      (m.currentLocation?.fullDescription || '').toLowerCase().includes(q) ||
+                      (m.currentLocation?.building?.name || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.machineNumber} — {m.currentLocation?.fullDescription || m.currentLocation?.areaZone || 'General Area'} ({m.status})
+                    </option>
+                  ))}
+              </select>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

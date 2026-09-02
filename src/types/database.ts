@@ -728,11 +728,14 @@ export interface SparePart {
   minimumQuantity?: number;
   minStockLevel?: number;
   maxStockLevel?: number;
+  reorderPoint?: number;
+  reorderQuantity?: number;
   unitCost: number;
   totalValue?: number;
   storageLocation?: string;
   barcode?: string;
   leadTimeDays?: number;
+  status?: string;
   isActive?: boolean;
   isDeleted?: boolean;
   deletedAt?: string;
@@ -799,6 +802,9 @@ export interface SparePartRequest {
   partName?: string;
   isCustomNonCatalog?: boolean;
   estimatedCost?: number;
+  unitCost?: number;
+  storageLocation?: string;
+  category?: string;
   quantity: number;
   priority?: TicketPriority;
   status: PartRequestStatus;

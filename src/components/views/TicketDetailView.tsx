@@ -51,10 +51,7 @@ import {
   SparePart
 } from '../../types';
 import {
-  api,
-  SEED_TICKETS,
-  SEED_TECHNICIANS,
-  SEED_SPARE_PARTS
+  api
 } from '../../services/api';
 
 interface TicketDetailViewProps {
@@ -147,7 +144,7 @@ export const TicketDetailView: React.FC<TicketDetailViewProps> = ({ ticketId, on
         api.getTechnicians(),
         api.getSpareParts()
       ]);
-      setTicket(tck || SEED_TICKETS[0]);
+      setTicket(tck || null);
       setTechnicians(techs);
       setSpareParts(parts);
       if (techs.length > 0) setSelectedTechId(techs[0].id);
@@ -167,8 +164,29 @@ export const TicketDetailView: React.FC<TicketDetailViewProps> = ({ ticketId, on
     loadTicketData();
   }, [ticketId]);
 
-  if (isLoading || !ticket) {
+  if (isLoading) {
     return <LoadingSpinner message="Loading ticket dossier and maintenance audit trail..." />;
+  }
+
+  if (!ticket) {
+    return (
+      <div className="text-center py-16 bg-slate-900/40 rounded-xl border border-slate-800 p-8 max-w-xl mx-auto my-8">
+        <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-3" />
+        <h3 className="text-lg font-bold text-slate-100 mb-1">
+          {isRTL ? 'التذكرة غير موجودة' : 'Ticket Not Found'}
+        </h3>
+        <p className="text-sm text-slate-400 mb-6">
+          {isRTL ? 'لم يتم العثور على التذكرة المطلوبة أو ربما تم حذفها.' : 'The requested ticket could not be found or has been removed.'}
+        </p>
+        <button
+          onClick={() => onNavigate('tickets')}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors inline-flex items-center gap-2 cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>{isRTL ? 'العودة لقائمة التذاكر' : 'Back to Tickets'}</span>
+        </button>
+      </div>
+    );
   }
 
   // Action Handlers

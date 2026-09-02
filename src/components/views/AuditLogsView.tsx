@@ -18,7 +18,7 @@ import { Button } from '../common/Button';
 import { Modal } from '../common/Modal';
 import { useLanguage } from '../../context/LanguageContext';
 import { AuditLog, NavigationTab } from '../../types';
-import { api, SEED_AUDIT_LOGS } from '../../services/api';
+import { api } from '../../services/api';
 
 interface AuditLogsViewProps {
   onNavigate: (tab: NavigationTab, id?: string) => void;

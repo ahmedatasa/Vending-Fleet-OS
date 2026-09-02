@@ -46,25 +46,24 @@ const DEFAULT_SETTINGS: SystemSettings = {
   supportWhatsapp: '+966-50-000-0000'
 };
 
-// Helper to generate fresh complete database
+// Helper to generate fresh complete database (clean, with no default/seed fleet records)
 function createInitialDatabase() {
-  const master = generateMasterFleetDataset();
   return {
-    buildings: master.buildings,
-    floors: master.floors,
-    locations: master.locations,
-    machines: master.machines,
-    tickets: master.tickets,
-    technicians: [...SEED_TECHNICIANS],
+    buildings: [],
+    floors: [],
+    locations: [],
+    machines: [],
+    tickets: [],
+    technicians: [],
     categories: [...SEED_SPARE_CATEGORIES],
-    spareParts: [...SEED_SPARE_PARTS],
-    suppliers: [...SEED_SUPPLIERS],
-    partRequests: [...SEED_PART_REQUESTS],
-    transactions: [...SEED_TRANSACTIONS],
+    spareParts: [],
+    suppliers: [],
+    partRequests: [],
+    transactions: [],
     users: [...SEED_USERS],
-    auditLogs: [...SEED_AUDIT_LOGS],
-    importBatches: [...SEED_IMPORT_BATCHES],
-    importRows: [...SEED_IMPORT_ROWS],
+    auditLogs: [],
+    importBatches: [],
+    importRows: [],
     settings: { ...DEFAULT_SETTINGS }
   };
 }
@@ -89,10 +88,10 @@ function getStore() {
           if (!Array.isArray(parsed.buildings)) parsed.buildings = [];
           if (!Array.isArray(parsed.floors)) parsed.floors = [];
           if (!Array.isArray(parsed.locations)) parsed.locations = [];
-          if (!Array.isArray(parsed.technicians)) parsed.technicians = [...SEED_TECHNICIANS];
+          if (!Array.isArray(parsed.technicians)) parsed.technicians = [];
           if (!Array.isArray(parsed.categories)) parsed.categories = [...SEED_SPARE_CATEGORIES];
-          if (!Array.isArray(parsed.spareParts)) parsed.spareParts = [...SEED_SPARE_PARTS];
-          if (!Array.isArray(parsed.suppliers)) parsed.suppliers = [...SEED_SUPPLIERS];
+          if (!Array.isArray(parsed.spareParts)) parsed.spareParts = [];
+          if (!Array.isArray(parsed.suppliers)) parsed.suppliers = [];
           if (!Array.isArray(parsed.partRequests)) parsed.partRequests = [];
           if (!Array.isArray(parsed.transactions)) parsed.transactions = [];
           if (!Array.isArray(parsed.users)) parsed.users = [...SEED_USERS];
@@ -108,7 +107,7 @@ function getStore() {
     console.error('Error reading JSON db file:', err);
   }
 
-  // Fallback initial complete master dataset
+  // Fallback initial complete master dataset (clean)
   inMemoryStore = createInitialDatabase();
   saveStore(inMemoryStore);
   return inMemoryStore;
@@ -265,16 +264,139 @@ async function startServer() {
     res.json(store.buildings || []);
   });
 
+  apiRouter.post('/buildings', (req, res) => {
+    const store = getStore();
+    const data = req.body;
+    const now = new Date().toISOString();
+    const newBld = {
+      id: `bld-${Date.now()}`,
+      name: data.name || 'New Building',
+      nameAr: data.nameAr,
+      code: (data.code || `BLD-${Date.now().toString().slice(-3)}`).trim().toUpperCase(),
+      address: data.address,
+      isActive: true,
+      isDeleted: false,
+      floors: [],
+      createdAt: now,
+      updatedAt: now,
+      ...data
+    };
+    if (!store.buildings) store.buildings = [];
+    store.buildings.unshift(newBld);
+    saveStore(store);
+    res.status(201).json(newBld);
+  });
+
+  apiRouter.put('/buildings/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    const idx = (store.buildings || []).findIndex((b: any) => b.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Building not found' });
+    store.buildings[idx] = { ...store.buildings[idx], ...req.body, updatedAt: new Date().toISOString() };
+    saveStore(store);
+    res.json(store.buildings[idx]);
+  });
+
+  apiRouter.delete('/buildings/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    store.buildings = (store.buildings || []).filter((b: any) => b.id !== id);
+    saveStore(store);
+    res.json({ success: true });
+  });
+
   // Floors
   apiRouter.get('/floors', (req, res) => {
     const store = getStore();
     res.json(store.floors || []);
   });
 
+  apiRouter.post('/floors', (req, res) => {
+    const store = getStore();
+    const data = req.body;
+    const now = new Date().toISOString();
+    const newFlr = {
+      id: `flr-${Date.now()}`,
+      buildingId: data.buildingId || store.buildings?.[0]?.id,
+      floorName: data.floorName || 'New Floor',
+      floorNameAr: data.floorNameAr,
+      levelOrder: Number(data.levelOrder) || 0,
+      isActive: true,
+      isDeleted: false,
+      createdAt: now,
+      ...data
+    };
+    if (!store.floors) store.floors = [];
+    store.floors.unshift(newFlr);
+    saveStore(store);
+    res.status(201).json(newFlr);
+  });
+
+  apiRouter.put('/floors/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    const idx = (store.floors || []).findIndex((f: any) => f.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Floor not found' });
+    store.floors[idx] = { ...store.floors[idx], ...req.body, updatedAt: new Date().toISOString() };
+    saveStore(store);
+    res.json(store.floors[idx]);
+  });
+
+  apiRouter.delete('/floors/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    store.floors = (store.floors || []).filter((f: any) => f.id !== id);
+    saveStore(store);
+    res.json({ success: true });
+  });
+
   // Locations
   apiRouter.get('/locations', (req, res) => {
     const store = getStore();
     res.json(store.locations || []);
+  });
+
+  apiRouter.post('/locations', (req, res) => {
+    const store = getStore();
+    const data = req.body;
+    const now = new Date().toISOString();
+    const newLoc = {
+      id: `loc-${Date.now()}`,
+      buildingId: data.buildingId || store.buildings?.[0]?.id,
+      floorId: data.floorId,
+      areaZone: data.areaZone || 'General Area',
+      areaZoneAr: data.areaZoneAr,
+      specificSpot: data.specificSpot,
+      specificSpotAr: data.specificSpotAr,
+      notes: data.notes,
+      isActive: true,
+      isDeleted: false,
+      createdAt: now,
+      updatedAt: now,
+      ...data
+    };
+    if (!store.locations) store.locations = [];
+    store.locations.unshift(newLoc);
+    saveStore(store);
+    res.status(201).json(newLoc);
+  });
+
+  apiRouter.put('/locations/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    const idx = (store.locations || []).findIndex((l: any) => l.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Location not found' });
+    store.locations[idx] = { ...store.locations[idx], ...req.body, updatedAt: new Date().toISOString() };
+    saveStore(store);
+    res.json(store.locations[idx]);
+  });
+
+  apiRouter.delete('/locations/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    store.locations = (store.locations || []).filter((l: any) => l.id !== id);
+    saveStore(store);
+    res.json({ success: true });
   });
 
   // ==========================================
@@ -938,23 +1060,14 @@ async function startServer() {
     const part = (store.spareParts || []).find((p: any) => p.id === id || p.partNumber === id);
     if (!part) return res.status(404).json({ error: 'Spare part not found' });
 
-    const hardDelete = req.query.hardDelete === 'true';
+    const hardDelete = req.query.hardDelete === 'true' || req.body?.hardDelete === true || req.query.force === 'true';
     const reason = (req.body?.reason || req.query.reason || 'Deleted SKU') as string;
     const now = new Date().toISOString();
 
-    const transactions = (store.transactions || []).filter((t: any) => t.partId === part.id || t.sparePartId === part.id);
-    const requests = (store.partRequests || []).filter((r: any) => (r.partId === part.id || r.sparePartId === part.id) && !r.isDeleted);
-    const hasHistory = (part.currentQuantity || 0) > 0 || transactions.length > 0 || requests.length > 0;
-
-    if (hardDelete && hasHistory) {
-      return res.status(400).json({
-        error: `Cannot permanently delete SKU "${part.partNumber}" (${part.name}) because it has positive inventory balance or recorded movement history. Please deactivate the spare part instead.`
-      });
-    }
-
     if (hardDelete) {
-      const idx = store.spareParts.findIndex((p: any) => p.id === part.id);
-      if (idx !== -1) store.spareParts.splice(idx, 1);
+      store.spareParts = (store.spareParts || []).filter((p: any) => p.id !== part.id && p.partNumber !== part.partNumber);
+      store.partRequests = (store.partRequests || []).filter((r: any) => r.partId !== part.id && r.sparePartId !== part.id);
+      store.transactions = (store.transactions || []).filter((t: any) => t.partId !== part.id && t.sparePartId !== part.id);
 
       if (!store.auditLogs) store.auditLogs = [];
       store.auditLogs.unshift({
@@ -986,6 +1099,26 @@ async function startServer() {
 
     saveStore(store);
     res.json({ success: true, partNumber: part.partNumber });
+  });
+
+  // Purge all demo/default data endpoint
+  apiRouter.all('/system/purge-demo-data', (req, res) => {
+    const store = getStore();
+    store.machines = [];
+    store.tickets = [];
+    store.buildings = [];
+    store.floors = [];
+    store.locations = [];
+    store.technicians = [];
+    store.spareParts = [];
+    store.suppliers = [];
+    store.partRequests = [];
+    store.transactions = [];
+    store.importBatches = [];
+    store.importRows = [];
+    store.auditLogs = [];
+    saveStore(store);
+    res.json({ success: true, message: 'All demo and test records purged successfully. System is completely clean.' });
   });
 
   // Spare Categories
@@ -1331,7 +1464,17 @@ async function startServer() {
 
     const ticketId = reqData.ticketId || reqData.ticket_id;
     const partId = reqData.sparePartId || reqData.part_id || reqData.partId;
-    const part = (store.spareParts || []).find((p: any) => p.id === partId || p.partNumber === partId) || store.spareParts?.[0];
+    let part = (store.spareParts || []).find((p: any) => p.id === partId || p.partNumber === partId);
+    if (!part && reqData.partNumber) {
+      part = (store.spareParts || []).find((p: any) => p.partNumber?.toLowerCase() === reqData.partNumber.toLowerCase());
+    }
+    if (!part && reqData.partName) {
+      part = (store.spareParts || []).find((p: any) => 
+        (p.name && p.name.toLowerCase() === reqData.partName.toLowerCase()) ||
+        (p.nameAr && p.nameAr.toLowerCase() === reqData.partName.toLowerCase())
+      );
+    }
+
     const ticket = ticketId ? (store.tickets || []).find((t: any) => t.id === ticketId || t.ticketNumber === ticketId) : undefined;
     const techId = reqData.technicianId || ticket?.assignedTechnicianId || store.technicians?.[0]?.id;
     const tech = (store.technicians || []).find((t: any) => t.id === techId) || store.technicians?.[0];
@@ -1340,6 +1483,35 @@ async function startServer() {
     const reqNum = `REQ-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
     const quantity = Math.max(1, Number(reqData.quantity) || 1);
+    const partName = (reqData.partName || (part ? (part.nameAr || part.name) : 'Spare Part')).trim();
+    const partNumber = (reqData.partNumber || part?.partNumber || `REQ-SKU-${Math.floor(1000 + Math.random() * 9000)}`).trim().toUpperCase();
+    const unitCost = Number(reqData.unitCost || reqData.estimatedCost || part?.unitCost || 45);
+
+    if (!part) {
+      if (!store.spareParts) store.spareParts = [];
+      const newPartId = `prt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      part = {
+        id: newPartId,
+        partNumber,
+        name: partName,
+        nameAr: partName,
+        category: reqData.category || 'GENERAL',
+        unitCost,
+        currentQuantity: 0,
+        currentStock: 0,
+        minimumQuantity: 2,
+        minStockLevel: 2,
+        maxStockLevel: 10,
+        storageLocation: reqData.storageLocation || 'Central Warehouse Depot',
+        isActive: true,
+        status: 'ACTIVE',
+        totalValue: 0,
+        createdAt: now,
+        updatedAt: now
+      };
+      store.spareParts.unshift(part);
+      console.log(`[API] Auto-registered custom requested spare part in catalog: ${part.partNumber} (${part.name})`);
+    }
 
     const newReq: any = {
       id: `req-${Date.now()}`,
@@ -1347,23 +1519,27 @@ async function startServer() {
       ticketId: ticket?.id,
       ticket: ticket,
       ticketNumber: ticket?.ticketNumber,
-      machineId: ticket?.machineId,
+      machineId: ticket?.machineId || reqData.machineId,
       machine: ticket?.machine,
-      machineNumber: ticket?.machine?.machineNumber,
+      machineNumber: ticket?.machine?.machineNumber || reqData.machineNumber,
       technicianId: tech?.id,
       technician: tech,
       technicianName: tech?.fullName || tech?.employeeCode,
-      partId: part?.id,
-      sparePartId: part?.id,
+      partId: part.id,
+      sparePartId: part.id,
       part: part,
       sparePart: part,
-      partNumber: part?.partNumber || 'SP-REQ',
-      partName: part ? (part.nameAr || part.name) : 'Spare Part',
+      partNumber,
+      partName,
+      unitCost,
+      estimatedCost: unitCost * quantity,
+      category: reqData.category || (typeof part.category === 'string' ? part.category : 'GENERAL'),
+      storageLocation: reqData.storageLocation || part?.storageLocation || 'Central Warehouse Rack A-01',
       quantity,
       priority: reqData.priority || ticket?.priority || 'MEDIUM',
       status: 'REQUESTED',
       notes: reqData.notes,
-      reason: reqData.reason || reqData.notes || `Requisition for ${part?.name || 'part'} (${part?.partNumber || 'SKU'})`,
+      reason: reqData.reason || reqData.notes || `Requisition for ${partName} (${partNumber})`,
       timeline: [
         {
           status: 'REQUESTED',
@@ -1381,9 +1557,21 @@ async function startServer() {
 
     // If linked to a ticket, update ticket status to WAITING_FOR_PART
     if (ticket) {
+      const prevStatus = ticket.status;
       ticket.status = 'WAITING_FOR_PART';
       ticket.updatedAt = now;
       if (!ticket.timeline) ticket.timeline = [];
+      if (!ticket.statusHistory) ticket.statusHistory = [];
+
+      ticket.statusHistory.push({
+        id: `sh-${Date.now()}`,
+        ticketId: ticket.id,
+        previousStatus: prevStatus,
+        newStatus: 'WAITING_FOR_PART',
+        comment: `تم تقديم طلب توريد/صرف قطعة غيار ${partName} (${quantity}x). تحولت التذكرة إلى في انتظار قطع الغيار.`,
+        createdAt: now
+      });
+
       ticket.timeline.unshift({
         id: `tl-${Date.now()}`,
         ticketId: ticket.id,
@@ -1392,13 +1580,13 @@ async function startServer() {
         technicianCode: tech?.employeeCode,
         technicianId: tech?.id,
         action: 'PART_REQUESTED',
-        actionLabel: 'Requisition Filed',
-        description: `Filed requisition ${reqNum} for ${newReq.quantity}x ${part?.name} (${part?.partNumber}).`,
+        actionLabel: 'طلب قطعة غيار (في انتظار التوريد)',
+        description: `تم تسجيل طلب قطعة الغيار ${reqNum} للقطعة ${partName} (${quantity}x). بانتظار موافقة وإجراءات إدارة المخزن والمشتريات.`,
         part: {
-          partNumber: part?.partNumber,
-          name: part?.name,
+          partNumber,
+          name: partName,
           quantity: newReq.quantity,
-          unitCost: part?.unitCost,
+          unitCost,
           status: 'REQUESTED'
         }
       });
@@ -1410,7 +1598,7 @@ async function startServer() {
       action: 'PART_REQUEST_CREATED',
       entityName: 'SparePartRequest',
       entityId: reqNum,
-      newValues: { partNumber: part?.partNumber, quantity: newReq.quantity, ticket: ticket?.ticketNumber },
+      newValues: { partNumber, quantity: newReq.quantity, ticket: ticket?.ticketNumber },
       createdAt: now
     });
 
@@ -1425,11 +1613,30 @@ async function startServer() {
     const r = (store.partRequests || []).find((reqItem: any) => reqItem.id === id || reqItem.requestNumber === id);
     if (!r) return res.status(404).json({ error: `Part request with ID '${id}' not found` });
 
-    const { status, poNumber, supplierId, actor, comment, expectedDeliveryDate, rejectedReason, autoReplenish, autoIssue } = req.body;
+    const {
+      status,
+      poNumber,
+      supplierId,
+      actor,
+      comment,
+      expectedDeliveryDate,
+      rejectedReason,
+      autoReplenish,
+      autoIssue,
+      storageLocation,
+      deliveryNoteNumber,
+      unitCost: suppliedUnitCost
+    } = req.body;
     const now = new Date().toISOString();
     const performer = actor || 'Warehouse Supervisor';
     const transitionComment = comment || `Status moved to ${status}`;
-    const part = (store.spareParts || []).find((p: any) => p.id === (r.partId || r.sparePartId));
+
+    // Flexible part matching across ID, partNumber, and name
+    let part = (store.spareParts || []).find((p: any) => 
+      p.id === (r.partId || r.sparePartId) ||
+      (r.partNumber && p.partNumber?.toLowerCase() === r.partNumber.toLowerCase()) ||
+      (r.partName && (p.name?.toLowerCase() === r.partName.toLowerCase() || p.nameAr?.toLowerCase() === r.partName.toLowerCase()))
+    );
 
     r.status = status;
     r.updatedAt = now;
@@ -1441,8 +1648,8 @@ async function startServer() {
       const isStockAvailable = part ? (part.currentQuantity || 0) >= (Number(r.quantity) || 1) : false;
       r.isInStock = isStockAvailable;
 
-      if (r.ticketId) {
-        const tck = (store.tickets || []).find((t: any) => t.id === r.ticketId || t.ticketNumber === r.ticketId);
+      if (r.ticketId || r.ticketNumber) {
+        const tck = (store.tickets || []).find((t: any) => t.id === r.ticketId || t.ticketNumber === r.ticketId || t.ticketNumber === r.ticketNumber);
         if (tck) {
           if (!tck.timeline) tck.timeline = [];
           tck.timeline.unshift({
@@ -1453,8 +1660,8 @@ async function startServer() {
             action: 'PART_APPROVED',
             actionLabel: isStockAvailable ? 'الموافقة على القطعة (متوفرة بالمخزن)' : 'الموافقة على الطلب (بانتظار أمر شراء)',
             description: isStockAvailable
-              ? `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.name}. القطعة متوفرة بالرصيد (${part?.currentQuantity} قطعة) وجاهزة لإصدار أمر الصرف الفوري.`
-              : `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.name}. القطعة غير متوفرة بالرصيد الحالي وجاري إصدار أمر شراء وتوريد خارجي من المورد.`
+              ? `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.nameAr || part?.name}. القطعة متوفرة بالرصيد (${part?.currentQuantity} قطعة) وجاهزة لإصدار أمر الصرف الفوري.`
+              : `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.nameAr || part?.name}. القطعة غير متوفرة بالرصيد الحالي وجاري إصدار أمر شراء وتوريد خارجي من المورد.`
           });
         }
       }
@@ -1469,8 +1676,8 @@ async function startServer() {
       }
       if (expectedDeliveryDate) r.expectedDeliveryDate = expectedDeliveryDate;
 
-      if (r.ticketId) {
-        const tck = (store.tickets || []).find((t: any) => t.id === r.ticketId || t.ticketNumber === r.ticketId);
+      if (r.ticketId || r.ticketNumber) {
+        const tck = (store.tickets || []).find((t: any) => t.id === r.ticketId || t.ticketNumber === r.ticketId || t.ticketNumber === r.ticketNumber);
         if (tck) {
           if (!tck.timeline) tck.timeline = [];
           tck.timeline.unshift({
@@ -1480,26 +1687,67 @@ async function startServer() {
             technicianName: performer,
             action: 'PO_PLACED',
             actionLabel: 'إصدار أمر شراء من المورد',
-            description: `تم إصدار أمر شراء خارجي رقم ${r.poNumber || 'PO-NEW'} من المورد (${r.supplier?.name || 'المورد المعتمد'}) لتوريد ${r.quantity}x ${r.partName || part?.name}. الموعد المتوقع للتوريد: ${r.expectedDeliveryDate || 'قريباً'}.`
+            description: `تم إصدار أمر شراء خارجي رقم ${r.poNumber || 'PO-NEW'} من المورد (${r.supplier?.name || 'المورد المعتمد'}) لتوريد ${r.quantity}x ${r.partName || part?.nameAr || part?.name}. الموعد المتوقع للتوريد: ${r.expectedDeliveryDate || 'قريباً'}.`
           });
         }
       }
     } else if (status === 'RECEIVED') {
       r.receivedBy = performer;
       r.receivedAt = now;
+      const qty = Number(r.quantity) || 1;
 
-      // Automatically post RECEIVE transaction to replenish inventory
-      if (part && autoReplenish !== false) {
-        const qty = Number(r.quantity) || 1;
+      // 1. AUTO-REGISTER INTO SPARE PARTS CATALOG IF NOT ALREADY PRESENT
+      if (!part) {
+        if (!store.spareParts) store.spareParts = [];
+        const newPartId = (r.partId && !r.partId.startsWith('custom-')) ? r.partId : `sp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const partCost = Number(suppliedUnitCost || r.estimatedCost || r.unitCost || (r.part && r.part.unitCost) || 45);
+        
+        part = {
+          id: newPartId,
+          partNumber: r.partNumber || `SKU-${Date.now().toString().slice(-6)}`,
+          name: r.partName || 'Spare Part Item',
+          nameAr: r.partName || 'قطعة غيار موردة',
+          category: r.category || (r.part && r.part.category) || 'GENERAL',
+          unitCost: partCost,
+          currentQuantity: 0,
+          currentStock: 0,
+          minimumQuantity: 2,
+          reorderPoint: 2,
+          reorderQuantity: 5,
+          storageLocation: storageLocation || r.storageLocation || 'Central Warehouse Rack A-01',
+          status: 'ACTIVE',
+          supplierId: r.supplierId,
+          supplier: r.supplier,
+          totalValue: 0,
+          createdAt: now,
+          updatedAt: now
+        };
+        store.spareParts.unshift(part);
+        console.log(`[API] Auto-registered newly received spare part in catalog: ${part.partNumber} (${part.name})`);
+      }
+
+      // Link part IDs
+      r.partId = part.id;
+      r.sparePartId = part.id;
+      r.part = part;
+      r.sparePart = part;
+      r.partNumber = part.partNumber;
+      r.partName = part.nameAr || part.name;
+
+      // 2. REPLENISH STOCK & REGISTER INVENTORY TRANSACTION
+      if (autoReplenish !== false) {
         const balanceBefore = Number(part.currentQuantity) || 0;
         const balanceAfter = balanceBefore + qty;
         part.currentQuantity = balanceAfter;
+        part.currentStock = balanceAfter;
         part.totalValue = balanceAfter * (part.unitCost || 0);
         part.updatedAt = now;
 
+        const refNum = r.poNumber || deliveryNoteNumber || r.requestNumber || 'PO-RECEIPT';
+
         if (!store.transactions) store.transactions = [];
         store.transactions.unshift({
-          id: `tx-${Date.now()}`,
+          id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           partId: part.id,
           sparePartId: part.id,
           part: part,
@@ -1512,16 +1760,20 @@ async function startServer() {
           unitCost: part.unitCost || 0,
           unitPrice: part.unitCost || 0,
           totalCost: qty * (part.unitCost || 0),
-          referenceNumber: r.poNumber || r.requestNumber || 'PO-REPLENISH',
+          referenceNumber: refNum,
+          referenceTicketId: r.ticketId,
+          referenceTicketNumber: r.ticketNumber,
+          machineId: r.machineId,
           performedBy: performer,
-          notes: `إذن استلام وتوريد للمخزن بموجب أمر الشراء ${r.poNumber || r.requestNumber || 'N/A'} للبلاغ ${r.ticketNumber || r.ticketId || ''}`,
+          notes: comment || `إذن استلام وتوريد للمخزن بموجب أمر الشراء ${refNum} للبلاغ ${r.ticketNumber || r.ticketId || ''}`,
           createdAt: now
         });
+        console.log(`[API] Inbound stock transaction recorded: +${qty} of ${part.partNumber} => Balance: ${balanceAfter}`);
       }
 
-      // CRITICAL LINK: Notify Maintenance & Field Support
-      if (r.ticketId) {
-        const tck = (store.tickets || []).find((t: any) => t.id === r.ticketId || t.ticketNumber === r.ticketId);
+      // 3. CRITICAL LINK: NOTIFY MAINTENANCE & UPDATE TICKET TIMELINE
+      if (r.ticketId || r.ticketNumber) {
+        const tck = (store.tickets || []).find((t: any) => t.id === r.ticketId || t.ticketNumber === r.ticketId || t.ticketNumber === r.ticketNumber);
         if (tck) {
           if (!tck.timeline) tck.timeline = [];
           tck.timeline.unshift({
@@ -1531,82 +1783,105 @@ async function startServer() {
             technicianName: performer,
             action: 'PART_RECEIVED_AVAILABLE',
             actionLabel: 'وصلت قطعة الغيار بالمخزن (إشعار للصيانة)',
-            description: `📢 بلاغ لقسم الصيانة والدعم: تم توريد واستلام قطعة الغيار ${r.partName || part?.name} (${r.quantity}x) بالمستودع بموجب إذن التوريد ${r.poNumber || r.requestNumber || 'N/A'}. القطعة الآن متاحة وجاهزة للصرف الفوري لاستئناف الصيانة.`
+            description: `📢 إشعار لقسم الصيانة والدعم: تم توريد واستلام قطعة الغيار ${r.partName || part?.nameAr || part?.name} (${qty}x) بالمستودع بموجب إذن التوريد ${r.poNumber || r.requestNumber || 'N/A'}. القطعة الآن متوفرة بالرصيد وجاهزة للصرف الفوري لاستئناف الصيانة.`
           });
         }
       }
     } else if (status === 'ISSUED') {
       r.issuedBy = performer;
       r.issuedAt = now;
+      const qty = Number(r.quantity) || 1;
 
-      // Check stock availability & post ISSUE transaction
-      if (part && autoIssue !== false) {
-        const qty = Number(r.quantity) || 1;
-        if ((part.currentQuantity || 0) < qty) {
-          return res.status(400).json({
-            error: `Cannot complete issuance: Available stock for ${part.partNumber} is ${part.currentQuantity}, but request requires ${qty}. Negative inventory is prevented.`
-          });
-        }
-
-        const balanceBefore = Number(part.currentQuantity) || 0;
-        const balanceAfter = balanceBefore - qty;
+      // 1. UPDATE INVENTORY & RECORD ISSUE TRANSACTION
+      let balanceBefore = 0;
+      let balanceAfter = 0;
+      if (part) {
+        balanceBefore = Number(part.currentQuantity) || 0;
+        balanceAfter = Math.max(0, balanceBefore - qty);
         part.currentQuantity = balanceAfter;
+        part.currentStock = balanceAfter;
         part.totalValue = balanceAfter * (part.unitCost || 0);
         part.updatedAt = now;
+      }
 
-        if (!store.transactions) store.transactions = [];
-        store.transactions.unshift({
-          id: `tx-${Date.now()}`,
-          partId: part.id,
-          sparePartId: part.id,
-          part: part,
-          sparePart: part,
-          transactionType: 'ISSUE',
-          quantity: qty,
-          quantityDelta: -qty,
-          balanceBefore,
-          balanceAfter,
-          unitCost: part.unitCost || 0,
-          unitPrice: part.unitCost || 0,
-          totalCost: qty * (part.unitCost || 0),
-          referenceTicketId: r.ticketId,
-          referenceTicketNumber: r.ticketNumber,
-          machineId: r.machineId,
-          performedBy: performer,
-          notes: `أمر صرف وتسليم للموقع لصالح البلاغ ${r.ticketNumber || r.ticketId || ''} (${r.requestNumber || r.id})`,
+      if (!store.transactions) store.transactions = [];
+      store.transactions.unshift({
+        id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        partId: part?.id || r.partId,
+        sparePartId: part?.id || r.partId,
+        part: part,
+        sparePart: part,
+        transactionType: 'ISSUE',
+        quantity: qty,
+        quantityDelta: -qty,
+        balanceBefore,
+        balanceAfter,
+        unitCost: part?.unitCost || Number(r.estimatedCost || 0),
+        unitPrice: part?.unitCost || Number(r.estimatedCost || 0),
+        totalCost: qty * (part?.unitCost || Number(r.estimatedCost || 0)),
+        referenceTicketId: r.ticketId,
+        referenceTicketNumber: r.ticketNumber,
+        machineId: r.machineId,
+        performedBy: performer,
+        notes: comment || `أمر صرف وتسليم للموقع لصالح البلاغ ${r.ticketNumber || r.ticketId || ''} (${r.requestNumber || r.id})`,
+        createdAt: now
+      });
+
+      // 2. CRITICAL LINK: AUTOMATICALLY UPDATE TICKET STATUS TO IN_PROGRESS & NOTIFY MAINTENANCE
+      const tck = (store.tickets || []).find((t: any) => 
+        t.id === r.ticketId || 
+        t.ticketNumber === r.ticketId || 
+        t.id === r.ticketNumber || 
+        t.ticketNumber === r.ticketNumber
+      );
+
+      if (tck) {
+        const prevStatus = tck.status;
+        tck.status = 'IN_PROGRESS';
+        tck.updatedAt = now;
+
+        if (!tck.statusHistory) tck.statusHistory = [];
+        tck.statusHistory.push({
+          id: `sh-${Date.now()}`,
+          ticketId: tck.id,
+          previousStatus: prevStatus,
+          newStatus: 'IN_PROGRESS',
+          comment: `تم صرف وتسليم قطعة الغيار (${qty}x ${r.partName || part?.nameAr || part?.name}) للفني المختص، وتم تحويل حالة التذكرة تلقائياً إلى [قيد الإصلاح - IN_PROGRESS].`,
           createdAt: now
         });
 
-        // If linked to a ticket in WAITING_FOR_PART, update ticket back to IN_PROGRESS
-        if (r.ticketId) {
-          const tck = (store.tickets || []).find((t: any) => t.id === r.ticketId || t.ticketNumber === r.ticketId);
-          if (tck) {
-            const prevStatus = tck.status;
-            tck.status = 'IN_PROGRESS';
-            tck.updatedAt = now;
+        if (!tck.timeline) tck.timeline = [];
+        tck.timeline.unshift({
+          id: `tl-${Date.now()}`,
+          ticketId: tck.id,
+          timestamp: now,
+          technicianId: r.technicianId || tck.assignedTechnicianId,
+          technicianName: performer,
+          action: 'PART_DISPATCHED_TO_FIELD',
+          actionLabel: 'تم تسليم القطعة للفني (تحويل لقيد الإصلاح)',
+          description: `📢 إشعار صيانة فوري: تم صرف وتسليم قطعة الغيار ${r.partName || part?.nameAr || part?.name} (${qty}x) من المستودع للفني المعتمد. تم استئناف حالة البلاغ فوراً من [${prevStatus}] إلى [قيد الإصلاح - IN_PROGRESS] لاستكمال أعمال الإصيانة.`
+        });
 
-            if (!tck.statusHistory) tck.statusHistory = [];
-            tck.statusHistory.push({
-              id: `sh-${Date.now()}`,
-              ticketId: tck.id,
-              previousStatus: prevStatus,
-              newStatus: 'IN_PROGRESS',
-              comment: `تم صرف قطعة الغيار (${r.quantity}x ${r.partName || part?.name}) من المستودع واستئناف أعمال الإصلاح`,
-              createdAt: now
-            });
+        // Register maintenance action entry
+        if (!tck.maintenanceActions) tck.maintenanceActions = [];
+        tck.maintenanceActions.unshift({
+          id: `ma-${Date.now()}`,
+          ticketId: tck.id,
+          technicianId: r.technicianId || tck.assignedTechnicianId,
+          actionType: 'PART_ISSUED',
+          actionTaken: `تسليم وصرف قطعة الغيار (${r.partName || part?.name}) واستئناف العمل`,
+          description: `تم إصدار إذن الصرف رقم ${r.requestNumber || r.id} وتسليم ${qty}x ${r.partName || part?.name} للفني الميداني ومباشرة أعمال الإصلاح.`,
+          partsUsed: [{
+            partId: part?.id || r.partId,
+            sparePart: part,
+            quantity: qty,
+            unitCostAtUse: part?.unitCost || 0
+          }],
+          performedAt: now,
+          createdAt: now
+        });
 
-            if (!tck.timeline) tck.timeline = [];
-            tck.timeline.unshift({
-              id: `tl-${Date.now()}`,
-              ticketId: tck.id,
-              timestamp: now,
-              technicianName: performer,
-              action: 'PART_DISPATCHED_TO_FIELD',
-              actionLabel: 'أمر صرف وتسليم القطعة (استئناف التذكرة)',
-              description: `تم صرف وتسليم قطعة الغيار ${r.partName || part?.name} (${r.quantity}x) من المستودع للفني. تم استئناف حالة البلاغ تلقائياً إلى قيد العمل (IN_PROGRESS) لاستكمال دورة الإصلاح.`
-            });
-          }
-        }
+        console.log(`[API] Ticket ${tck.ticketNumber} transitioned from ${prevStatus} to IN_PROGRESS upon part issuance.`);
       }
     } else if (status === 'REJECTED') {
       r.rejectedReason = rejectedReason || comment;
@@ -2002,15 +2277,78 @@ async function startServer() {
   // Machines
   apiRouter.get('/machines', (req, res) => {
     const store = getStore();
-    res.json(store.machines);
+    res.json(store.machines || []);
   });
 
   apiRouter.get('/machines/:id', (req, res) => {
     const store = getStore();
     const id = req.params.id;
-    const m = store.machines.find((x: any) => x.id === id || x.machineNumber === id || x.publicId === id || x.publicQrId === id);
+    const m = (store.machines || []).find((x: any) => x.id === id || x.machineNumber === id || x.publicId === id || x.publicQrId === id);
     if (!m) return res.status(404).json({ error: 'Machine not found' });
     res.json(m);
+  });
+
+  apiRouter.post('/machines', (req, res) => {
+    const store = getStore();
+    const data = req.body;
+    if (!data.machineNumber || !data.machineNumber.trim()) {
+      return res.status(400).json({ error: 'Machine Number is mandatory' });
+    }
+    const cleanNum = data.machineNumber.trim().toUpperCase();
+    const existing = (store.machines || []).find((m: any) => m.machineNumber?.toUpperCase() === cleanNum);
+    if (existing) {
+      return res.status(400).json({ error: `Machine Number ${cleanNum} already exists` });
+    }
+    const now = new Date().toISOString();
+    const randomHex = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newMachine = {
+      id: `mch-${Date.now()}`,
+      publicId: `pub-${randomHex}`,
+      publicQrId: `QR-${randomHex}`,
+      machineNumber: cleanNum,
+      serialNumber: data.serialNumber || `SN-${randomHex}`,
+      model: data.model || 'Standard Vending Unit',
+      type: data.type || 'SNACK',
+      status: data.status || 'OPERATIONAL',
+      buildingId: data.buildingId,
+      floorId: data.floorId,
+      locationId: data.locationId,
+      installationDate: data.installationDate || now,
+      lastMaintenanceDate: data.lastMaintenanceDate || now,
+      qrCodeUrl: `/qr/${randomHex}`,
+      createdAt: now,
+      updatedAt: now,
+      ...data
+    };
+    if (!store.machines) store.machines = [];
+    store.machines.unshift(newMachine);
+    saveStore(store);
+    res.status(201).json(newMachine);
+  });
+
+  apiRouter.put('/machines/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    const idx = (store.machines || []).findIndex((m: any) => m.id === id || m.machineNumber === id);
+    if (idx === -1) return res.status(404).json({ error: 'Machine not found' });
+    const updated = {
+      ...store.machines[idx],
+      ...req.body,
+      updatedAt: new Date().toISOString()
+    };
+    store.machines[idx] = updated;
+    saveStore(store);
+    res.json(updated);
+  });
+
+  apiRouter.delete('/machines/:id', (req, res) => {
+    const store = getStore();
+    const id = req.params.id;
+    const idx = (store.machines || []).findIndex((m: any) => m.id === id || m.machineNumber === id);
+    if (idx === -1) return res.status(404).json({ error: 'Machine not found' });
+    store.machines.splice(idx, 1);
+    saveStore(store);
+    res.json({ success: true, message: 'Machine deleted successfully' });
   });
 
   // Public QR machine lookup - matches publicQrId, publicId, machineNumber, id, serialNumber
@@ -2132,7 +2470,7 @@ async function startServer() {
       machine = store.machines[0] || {
         id: 'mch-1',
         machineNumber: publicQrId || '1',
-        currentLocation: store.locations[0]
+        currentLocation: store.locations[0] || null
       };
     }
 
@@ -2395,7 +2733,11 @@ async function startServer() {
     });
 
     if (!machine) {
-      machine = store.machines[0];
+      machine = store.machines[0] || {
+        id: 'mch-temp',
+        machineNumber: cleanQr || '1',
+        currentLocation: store.locations[0] || null
+      };
     }
 
     const now = new Date().toISOString();
@@ -2784,8 +3126,29 @@ async function startServer() {
     const numStr = String(count).padStart(4, '0');
     const now = new Date().toISOString();
 
-    const machine = store.machines.find((m: any) => m.id === data.machineId) || store.machines[0];
-    const loc = machine?.currentLocation || store.locations[0];
+    let machine = (store.machines || []).find((m: any) => m.id === data.machineId || m.machineNumber === data.machineId || m.serialNumber === data.machineId);
+    if (!machine && (data.machineNumber || data.machineId)) {
+      const nowHex = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const mNum = (data.machineNumber || data.machineId || `VM-${nowHex}`).trim().toUpperCase();
+      machine = {
+        id: `mch-${Date.now()}`,
+        machineNumber: mNum,
+        serialNumber: data.serialNumber || `SN-${nowHex}`,
+        model: data.machine?.model || 'Standard Vending Unit',
+        type: data.machine?.type || 'SNACK',
+        status: 'OPERATIONAL',
+        createdAt: now,
+        updatedAt: now
+      };
+      if (!store.machines) store.machines = [];
+      store.machines.unshift(machine);
+    } else if (!machine && store.machines && store.machines.length > 0) {
+      machine = store.machines[0];
+    }
+    if (!machine) {
+      return res.status(400).json({ error: 'لا توجد ماكينات مسجلة في النظام. يرجى تسجيل أو استيراد ماكينة أولاً لفتح تذكرة صيانة عليها.' });
+    }
+    const loc = machine.currentLocation || (data.locationId ? store.locations.find((l: any) => l.id === data.locationId) : null) || store.locations[0] || null;
 
     const newTicket = {
       id: `tck-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -2794,7 +3157,7 @@ async function startServer() {
       titleAr: data.titleAr || `بلاغ صيانة #${machine.machineNumber}`,
       machineId: machine.id,
       machine: machine,
-      locationId: loc?.id || 'loc-001',
+      locationId: loc?.id || machine.currentLocation?.id || '',
       location: loc,
       source: data.source || 'MANUAL',
       category: data.category || 'OTHER',

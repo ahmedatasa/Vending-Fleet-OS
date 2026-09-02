@@ -1516,7 +1516,7 @@ export const SEED_IMPORT_ROWS: ImportRowEntity[] = [
 ];
 
 // Reactive Persistent In-Memory Store with LocalStorage Persistence
-const STORE_STORAGE_KEY = 'vending_fleet_datastore_v2';
+const STORE_STORAGE_KEY = 'vending_fleet_datastore_v8_pure_clean';
 
 export function generateMasterFleetDataset() {
   const buildings: Building[] = [
@@ -1763,6 +1763,22 @@ function loadInitialStore(): {
   importRows: typeof SEED_IMPORT_ROWS;
 } {
   try {
+    if (typeof window !== 'undefined') {
+      const legacyKeys = [
+        'vending_fleet_datastore',
+        'vending_fleet_datastore_v1',
+        'vending_fleet_datastore_v2',
+        'vending_fleet_datastore_v3',
+        'vending_fleet_datastore_v4',
+        'vending_fleet_datastore_v5_clean',
+        'vending_fleet_datastore_v6_clean_prod',
+        'vending_fleet_datastore_v7_clean'
+      ];
+      legacyKeys.forEach(k => {
+        try { localStorage.removeItem(k); } catch {}
+      });
+    }
+
     const raw = typeof window !== 'undefined' ? localStorage.getItem(STORE_STORAGE_KEY) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -1772,11 +1788,11 @@ function loadInitialStore(): {
           floors: Array.isArray(parsed.floors) ? parsed.floors : [],
           locations: Array.isArray(parsed.locations) ? parsed.locations : [],
           machines: Array.isArray(parsed.machines) ? parsed.machines : [],
-          technicians: Array.isArray(parsed.technicians) ? parsed.technicians : [...SEED_TECHNICIANS],
+          technicians: Array.isArray(parsed.technicians) ? parsed.technicians : [],
           categories: Array.isArray(parsed.categories) ? parsed.categories : [...SEED_SPARE_CATEGORIES],
-          spareParts: Array.isArray(parsed.spareParts) ? parsed.spareParts : [...SEED_SPARE_PARTS],
+          spareParts: Array.isArray(parsed.spareParts) ? parsed.spareParts : [],
           tickets: Array.isArray(parsed.tickets) ? parsed.tickets : [],
-          suppliers: Array.isArray(parsed.suppliers) ? parsed.suppliers : [...SEED_SUPPLIERS],
+          suppliers: Array.isArray(parsed.suppliers) ? parsed.suppliers : [],
           partRequests: Array.isArray(parsed.partRequests) ? parsed.partRequests : [],
           transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
           users: Array.isArray(parsed.users) ? parsed.users : [...SEED_USERS],
@@ -1796,17 +1812,17 @@ function loadInitialStore(): {
     floors: [],
     locations: [],
     machines: [],
-    technicians: [...SEED_TECHNICIANS],
+    technicians: [],
     categories: [...SEED_SPARE_CATEGORIES],
-    spareParts: [...SEED_SPARE_PARTS],
+    spareParts: [],
     tickets: [],
-    suppliers: [...SEED_SUPPLIERS],
-    partRequests: [...SEED_PART_REQUESTS],
-    transactions: [...SEED_TRANSACTIONS],
+    suppliers: [],
+    partRequests: [],
+    transactions: [],
     users: [...SEED_USERS],
-    auditLogs: [...SEED_AUDIT_LOGS],
-    importBatches: [...SEED_IMPORT_BATCHES],
-    importRows: [...SEED_IMPORT_ROWS]
+    auditLogs: [],
+    importBatches: [],
+    importRows: []
   };
 
   return initial;
@@ -1853,6 +1869,7 @@ class DataStore {
 
   applyFullSnapshot(data: any, persistLocal: boolean = true) {
     if (!data || typeof data !== 'object') return;
+
     if (Array.isArray(data.machines)) this.machines = data.machines;
     if (Array.isArray(data.tickets)) this.tickets = data.tickets;
     if (Array.isArray(data.buildings)) this.buildings = data.buildings;
@@ -3811,7 +3828,6 @@ export const api = {
       const items = Array.isArray(res) ? res : (res.items || []);
       if (items.length > 0) {
         store.tickets = items;
-        store.save();
       }
       return items;
     } catch {
@@ -5860,26 +5876,31 @@ export const api = {
     }
   },
 
-  async deleteSparePart(id: string, hardDelete = false, reason?: string) {
+  async deleteSparePart(id: string, hardDelete = true, reason?: string) {
     try {
-      return await apiFetch<any>(`/spare-parts/${id}?hardDelete=${hardDelete}`, {
+      const res = await apiFetch<any>(`/spare-parts/${id}?hardDelete=${hardDelete}&force=true`, {
         method: 'DELETE',
-        body: JSON.stringify({ reason })
+        body: JSON.stringify({ reason, hardDelete })
       });
+      // Synchronously purge from client-side memory store
+      if (hardDelete) {
+        store.spareParts = store.spareParts.filter(p => p.id !== id && p.partNumber !== id);
+      } else {
+        const found = store.spareParts.find(p => p.id === id || p.partNumber === id);
+        if (found) {
+          found.isDeleted = true;
+          found.isActive = false;
+        }
+      }
+      store.save();
+      return res;
     } catch {
       const part = store.spareParts.find(p => p.id === id || p.partNumber === id);
       if (!part) throw new Error('Spare part not found');
 
-      const refs = await this.checkSparePartReferences(part.id);
-      if (hardDelete && !refs.canDelete) {
-        throw new Error(
-          `Cannot permanently delete SKU "${part.partNumber}" (${part.name}) because it has positive inventory balance or recorded movement history. Please deactivate (discontinue) the spare part instead.`
-        );
-      }
-
       if (hardDelete) {
-        const idx = store.spareParts.findIndex(p => p.id === part.id);
-        if (idx !== -1) store.spareParts.splice(idx, 1);
+        store.spareParts = store.spareParts.filter(p => p.id !== part.id && p.partNumber !== part.partNumber);
+        store.save();
 
         store.auditLogs.unshift({
           id: `aud-${Date.now()}`,
@@ -5909,6 +5930,27 @@ export const api = {
 
       return { success: true };
     }
+  },
+
+  async purgeAllDemoData() {
+    try {
+      await apiFetch('/system/purge-demo-data', { method: 'POST' });
+    } catch {}
+    store.machines = [];
+    store.tickets = [];
+    store.buildings = [];
+    store.floors = [];
+    store.locations = [];
+    store.technicians = [];
+    store.spareParts = [];
+    store.suppliers = [];
+    store.partRequests = [];
+    store.transactions = [];
+    store.importBatches = [];
+    store.importRows = [];
+    store.auditLogs = [];
+    store.save();
+    return { success: true };
   },
 
   async getInventoryTransactions(filter?: { partId?: string; type?: string; ticketId?: string; machineId?: string }) {
@@ -5968,9 +6010,30 @@ export const api = {
         body: JSON.stringify(adj)
       });
     } catch {
-      const targetId = adj.part_id || adj.sparePartId || store.spareParts[0].id;
-      const part = store.spareParts.find(p => p.id === targetId || p.partNumber === targetId);
-      if (!part) throw new Error(`Spare part with ID/SKU '${targetId}' was not found in catalog.`);
+      const targetId = adj.part_id || adj.sparePartId || (store.spareParts?.[0]?.id);
+      let part = targetId ? store.spareParts.find(p => p.id === targetId || p.partNumber === targetId) : undefined;
+      if (!part) {
+        // Auto-register so movement doesn't fail
+        part = {
+          id: targetId || `sp-${Date.now()}`,
+          partNumber: `SKU-${Date.now().toString().slice(-6)}`,
+          name: 'Spare Part Item',
+          nameAr: 'قطعة غيار',
+          category: 'GENERAL',
+          unitCost: adj.unitCost || 50,
+          currentQuantity: 0,
+          minimumQuantity: 2,
+          reorderPoint: 2,
+          reorderQuantity: 5,
+          storageLocation: adj.sourceLocation || 'Central Warehouse',
+          status: 'ACTIVE',
+          isActive: true,
+          totalValue: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        store.spareParts.unshift(part);
+      }
 
       const type = adj.transaction_type;
       const rawQty = Math.abs(adj.quantity ?? (adj.quantity_delta !== undefined ? Math.abs(adj.quantity_delta) : 1));
@@ -6168,6 +6231,11 @@ export const api = {
     ticketId?: string;
     part_id?: string;
     sparePartId?: string;
+    partName?: string;
+    partNumber?: string;
+    unitCost?: number;
+    category?: string;
+    storageLocation?: string;
     quantity: number;
     priority?: TicketPriority;
     reason?: string;
@@ -6182,15 +6250,47 @@ export const api = {
       });
     } catch {
       const ticketId = req.ticketId || req.ticket_id;
-      const partId = req.sparePartId || req.part_id || store.spareParts[0].id;
-      const part = store.spareParts.find(p => p.id === partId) || store.spareParts[0];
+      const partId = req.sparePartId || req.part_id;
+      let part = partId ? store.spareParts.find(p => p.id === partId) : undefined;
+      if (!part && req.partNumber) {
+        part = store.spareParts.find(p => p.partNumber?.toLowerCase() === req.partNumber?.toLowerCase());
+      }
+      if (!part && !req.partName && store.spareParts.length > 0) {
+        part = store.spareParts[0];
+      }
       const ticket = ticketId ? store.tickets.find(t => t.id === ticketId || t.ticketNumber === ticketId) : undefined;
-      const techId = req.technicianId || ticket?.assignedTechnicianId || store.technicians[0].id;
+      const techId = req.technicianId || ticket?.assignedTechnicianId || (store.technicians.length > 0 ? store.technicians[0].id : 'tech-1');
       const tech = store.technicians.find(t => t.id === techId) || store.technicians[0];
 
       const count = store.partRequests.length + 1;
       const reqNum = `REQ-2026-${String(count).padStart(4, '0')}`;
       const now = new Date().toISOString();
+
+      const chosenPartNumber = (req.partNumber || part?.partNumber || `SKU-${Date.now().toString().slice(-6)}`).trim().toUpperCase();
+      const chosenPartName = (req.partName || part?.nameAr || part?.name || 'قطعة غيار مطلوبة').trim();
+      const chosenCost = Number(req.unitCost || part?.unitCost || 45);
+
+      if (!part) {
+        part = {
+          id: `prt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          partNumber: chosenPartNumber,
+          name: chosenPartName,
+          nameAr: chosenPartName,
+          category: req.category || 'GENERAL',
+          unitCost: chosenCost,
+          currentQuantity: 0,
+          minimumQuantity: 2,
+          minStockLevel: 2,
+          maxStockLevel: 10,
+          storageLocation: req.storageLocation || 'Central Warehouse Depot',
+          isActive: true,
+          status: 'ACTIVE',
+          totalValue: 0,
+          createdAt: now,
+          updatedAt: now
+        };
+        store.spareParts.unshift(part);
+      }
 
       const newReq: SparePartRequest = {
         id: `req-${Date.now()}`,
@@ -6201,25 +6301,30 @@ export const api = {
         machineId: ticket?.machineId,
         machine: ticket?.machine,
         machineNumber: ticket?.machine?.machineNumber,
-        technicianId: tech.id,
+        technicianId: tech?.id,
         technician: tech,
-        technicianName: tech.fullName || tech.employeeCode,
+        technicianName: tech?.fullName || tech?.employeeCode || 'Technician',
         partId: part.id,
         sparePartId: part.id,
         part: part,
         sparePart: part,
-        partNumber: part.partNumber,
-        partName: part.name,
+        partNumber: chosenPartNumber,
+        partName: chosenPartName,
+        unitCost: chosenCost,
+        estimatedCost: chosenCost * (Number(req.quantity) || 1),
+        isCustomNonCatalog: false,
+        storageLocation: req.storageLocation || part.storageLocation,
+        category: req.category || (typeof part.category === 'string' ? part.category : 'GENERAL'),
         quantity: Math.max(1, req.quantity || 1),
         priority: req.priority || ticket?.priority || 'MEDIUM',
         status: 'REQUESTED',
         notes: req.notes,
-        reason: req.reason || req.notes || `Requisition for ${part.name} (${part.partNumber})`,
+        reason: req.reason || req.notes || `Requisition for ${chosenPartName} (${chosenPartNumber})`,
         timeline: [
           {
             status: 'REQUESTED',
             timestamp: now,
-            actor: tech.fullName || 'Technician',
+            actor: tech?.fullName || 'Technician',
             comment: req.reason || 'Requisition submitted to warehouse depot'
           }
         ],
@@ -6238,17 +6343,17 @@ export const api = {
           id: `tl-${Date.now()}`,
           ticketId: ticket.id,
           timestamp: now,
-          technicianName: tech.fullName || tech.employeeCode,
-          technicianCode: tech.employeeCode,
-          technicianId: tech.id,
+          technicianName: tech?.fullName || tech?.employeeCode,
+          technicianCode: tech?.employeeCode,
+          technicianId: tech?.id,
           action: 'PART_REQUESTED',
           actionLabel: 'Requisition Filed',
-          description: `Filed requisition ${reqNum} for ${newReq.quantity}x ${part.name} (${part.partNumber}).`,
+          description: `Filed requisition ${reqNum} for ${newReq.quantity}x ${chosenPartName} (${chosenPartNumber}).`,
           part: {
-            partNumber: part.partNumber,
-            name: part.name,
+            partNumber: chosenPartNumber,
+            name: chosenPartName,
             quantity: newReq.quantity,
-            unitCost: part.unitCost,
+            unitCost: chosenCost,
             status: 'REQUESTED'
           }
         });
@@ -6259,10 +6364,11 @@ export const api = {
         action: 'PART_REQUEST_CREATED',
         entityName: 'SparePartRequest',
         entityId: reqNum,
-        newValues: { partNumber: part.partNumber, quantity: newReq.quantity, ticket: ticket?.ticketNumber },
+        newValues: { partNumber: chosenPartNumber, quantity: newReq.quantity, ticket: ticket?.ticketNumber },
         createdAt: now
       });
 
+      store.save();
       return newReq;
     }
   },
@@ -6291,19 +6397,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ status, ...payload })
       });
-      const idx = store.partRequests.findIndex(req => req.id === id || req.requestNumber === id);
-      if (idx !== -1) {
-        store.partRequests[idx] = { ...store.partRequests[idx], ...updated };
-      } else {
-        store.partRequests.unshift(updated);
-      }
-      if (status === 'RECEIVED' || status === 'ISSUED') {
-        try {
-          await this.getSpareParts();
-          await this.getTickets();
-        } catch {}
-      }
-      store.save(false);
+      // Fetch authoritative server state which contains updated catalog parts, inventory stock, transactions, and ticket status
+      await store.fetchServerState();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('vending-fleet-data-updated'));
       }
@@ -6315,7 +6410,11 @@ export const api = {
       const now = new Date().toISOString();
       const actor = payload?.actor || 'Warehouse Supervisor';
       const comment = payload?.comment || `Status moved to ${status}`;
-      const part = store.spareParts.find(p => p.id === (r.partId || r.sparePartId));
+      let part = store.spareParts.find(p => 
+        p.id === (r.partId || r.sparePartId) ||
+        (r.partNumber && p.partNumber?.toLowerCase() === r.partNumber.toLowerCase()) ||
+        (r.partName && (p.name?.toLowerCase() === r.partName.toLowerCase() || p.nameAr?.toLowerCase() === r.partName.toLowerCase()))
+      );
 
       r.status = status;
       r.updatedAt = now;
@@ -6328,8 +6427,8 @@ export const api = {
         const isStockAvailable = part ? (part.currentQuantity || 0) >= (Number(r.quantity) || 1) : false;
         r.isInStock = isStockAvailable;
 
-        if (r.ticketId) {
-          const tck = store.tickets.find(t => t.id === r.ticketId || t.ticketNumber === r.ticketId);
+        if (r.ticketId || r.ticketNumber) {
+          const tck = store.tickets.find(t => t.id === r.ticketId || t.ticketNumber === r.ticketId || t.ticketNumber === r.ticketNumber);
           if (tck) {
             if (!tck.timeline) tck.timeline = [];
             tck.timeline.unshift({
@@ -6340,8 +6439,8 @@ export const api = {
               action: 'PART_APPROVED',
               actionLabel: isStockAvailable ? 'الموافقة على القطعة (متوفرة بالمخزن)' : 'الموافقة على الطلب (بانتظار أمر شراء)',
               description: isStockAvailable
-                ? `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.name}. القطعة متوفرة بالرصيد (${part?.currentQuantity} قطعة) وجاهزة لإصدار أمر الصرف الفوري.`
-                : `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.name}. القطعة غير متوفرة بالرصيد الحالي وجاري إصدار أمر شراء وتوريد خارجي من المورد.`
+                ? `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.nameAr || part?.name}. القطعة متوفرة بالرصيد (${part?.currentQuantity} قطعة) وجاهزة لإصدار أمر الصرف الفوري.`
+                : `تمت موافقة إدارة المخزن على طلب القطعة ${r.partName || part?.nameAr || part?.name}. القطعة غير متوفرة بالرصيد الحالي وجاري إصدار أمر شراء وتوريد خارجي من المورد.`
             });
           }
         }
@@ -6355,8 +6454,8 @@ export const api = {
         }
         if (payload?.expectedDeliveryDate) r.expectedDeliveryDate = payload.expectedDeliveryDate;
 
-        if (r.ticketId) {
-          const tck = store.tickets.find(t => t.id === r.ticketId || t.ticketNumber === r.ticketId);
+        if (r.ticketId || r.ticketNumber) {
+          const tck = store.tickets.find(t => t.id === r.ticketId || t.ticketNumber === r.ticketId || t.ticketNumber === r.ticketNumber);
           if (tck) {
             if (!tck.timeline) tck.timeline = [];
             tck.timeline.unshift({
@@ -6366,29 +6465,65 @@ export const api = {
               technicianName: actor,
               action: 'PO_PLACED',
               actionLabel: 'إصدار أمر شراء من المورد',
-              description: `تم إصدار أمر شراء خارجي رقم ${r.poNumber || 'PO-NEW'} من المورد (${r.supplier?.name || 'المورد المعتمد'}) لتوريد ${r.quantity}x ${r.partName || part?.name}. الموعد المتوقع للتوريد: ${r.expectedDeliveryDate || 'قريباً'}.`
+              description: `تم إصدار أمر شراء خارجي رقم ${r.poNumber || 'PO-NEW'} من المورد (${r.supplier?.name || 'المورد المعتمد'}) لتوريد ${r.quantity}x ${r.partName || part?.nameAr || part?.name}. الموعد المتوقع للتوريد: ${r.expectedDeliveryDate || 'قريباً'}.`
             });
           }
         }
       } else if (status === 'RECEIVED') {
         r.receivedBy = actor;
         r.receivedAt = now;
+        const qty = Number(r.quantity) || 1;
+
+        // Auto-register newly received item in catalog if not already registered
+        if (!part) {
+          const newId = (r.partId && !r.partId.startsWith('custom-')) ? r.partId : `sp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          const partCost = Number((payload as any)?.unitCost || r.estimatedCost || r.unitCost || 45);
+          part = {
+            id: newId,
+            partNumber: r.partNumber || `SKU-${Date.now().toString().slice(-6)}`,
+            name: r.partName || 'Spare Part Item',
+            nameAr: r.partName || 'قطعة غيار موردة',
+            category: (r as any).category || 'GENERAL',
+            unitCost: partCost,
+            currentQuantity: 0,
+            minimumQuantity: 2,
+            reorderPoint: 2,
+            reorderQuantity: 5,
+            storageLocation: (payload as any)?.storageLocation || r.storageLocation || 'Central Warehouse Depot',
+            status: 'ACTIVE',
+            supplierId: r.supplierId,
+            supplier: r.supplier,
+            totalValue: 0,
+            createdAt: now,
+            updatedAt: now
+          };
+          store.spareParts.unshift(part);
+        }
+
+        r.partId = part.id;
+        r.sparePartId = part.id;
+        r.part = part;
+        r.sparePart = part;
+        r.partNumber = part.partNumber;
+        r.partName = part.nameAr || part.name;
 
         // Automatically post RECEIVE transaction to replenish inventory
-        if (part && payload?.autoReplenish !== false) {
+        if (payload?.autoReplenish !== false) {
           await this.postStockAdjustment({
             part_id: part.id,
             transaction_type: 'RECEIVE',
-            quantity: r.quantity,
-            referenceNumber: r.poNumber || r.requestNumber || 'PO-REPLENISH',
+            quantity: qty,
+            referenceNumber: r.poNumber || (payload as any)?.deliveryNoteNumber || r.requestNumber || 'PO-REPLENISH',
+            referenceTicketId: r.ticketId,
+            referenceTicketNumber: r.ticketNumber,
             performedBy: actor,
-            notes: `إذن استلام وتوريد للمخزن بموجب أمر الشراء ${r.poNumber || r.requestNumber || 'N/A'} للبلاغ ${r.ticketNumber || r.ticketId || ''}`
+            notes: comment || `إذن استلام وتوريد للمخزن بموجب أمر الشراء ${r.poNumber || r.requestNumber || 'N/A'} للبلاغ ${r.ticketNumber || r.ticketId || ''}`
           });
         }
 
         // CRITICAL LINK: Notify Maintenance & Field Support
-        if (r.ticketId) {
-          const tck = store.tickets.find(t => t.id === r.ticketId || t.ticketNumber === r.ticketId);
+        if (r.ticketId || r.ticketNumber) {
+          const tck = store.tickets.find(t => t.id === r.ticketId || t.ticketNumber === r.ticketId || t.ticketNumber === r.ticketNumber);
           if (tck) {
             if (!tck.timeline) tck.timeline = [];
             tck.timeline.unshift({
@@ -6398,63 +6533,63 @@ export const api = {
               technicianName: actor,
               action: 'PART_RECEIVED_AVAILABLE',
               actionLabel: 'وصلت قطعة الغيار بالمخزن (إشعار للصيانة)',
-              description: `📢 بلاغ لقسم الصيانة والدعم: تم توريد واستلام قطعة الغيار ${r.partName || part?.name} (${r.quantity}x) بالمستودع بموجب إذن التوريد ${r.poNumber || r.requestNumber || 'N/A'}. القطعة الآن متاحة وجاهزة للصرف الفوري لاستئناف الصيانة.`
+              description: `📢 إشعار لقسم الصيانة والدعم: تم توريد واستلام قطعة الغيار ${r.partName || part?.nameAr || part?.name} (${qty}x) بالمستودع بموجب إذن التوريد ${r.poNumber || r.requestNumber || 'N/A'}. القطعة الآن متوفرة بالرصيد وجاهزة للصرف الفوري لاستئناف الصيانة.`
             });
           }
         }
       } else if (status === 'ISSUED') {
         r.issuedBy = actor;
         r.issuedAt = now;
+        const qty = Number(r.quantity) || 1;
 
         // Check stock availability & post ISSUE transaction
         if (part && payload?.autoIssue !== false) {
-          if (part.currentQuantity < r.quantity) {
-            throw new Error(
-              `Cannot complete issuance: Available stock for ${part.partNumber} is ${part.currentQuantity}, but request requires ${r.quantity}. Negative inventory is prevented.`
-            );
-          }
-
           await this.postStockAdjustment({
             part_id: part.id,
             transaction_type: 'ISSUE',
-            quantity: r.quantity,
+            quantity: qty,
             referenceTicketId: r.ticketId,
             referenceTicketNumber: r.ticketNumber,
             machineId: r.machineId,
             performedBy: actor,
-            notes: `أمر صرف وتسليم للموقع لصالح البلاغ ${r.ticketNumber || r.ticketId || ''} (${r.requestNumber || r.id})`
+            notes: comment || `أمر صرف وتسليم للموقع لصالح البلاغ ${r.ticketNumber || r.ticketId || ''} (${r.requestNumber || r.id})`
+          });
+        }
+
+        // CRITICAL LINK: Automatically update ticket status to IN_PROGRESS and notify maintenance
+        const tck = store.tickets.find(t => 
+          t.id === r.ticketId || 
+          t.ticketNumber === r.ticketId || 
+          t.id === r.ticketNumber || 
+          t.ticketNumber === r.ticketNumber
+        );
+
+        if (tck) {
+          const prevStatus = tck.status;
+          tck.status = 'IN_PROGRESS';
+          tck.updatedAt = now;
+
+          if (!tck.statusHistory) tck.statusHistory = [];
+          tck.statusHistory.push({
+            id: `sh-${Date.now()}`,
+            ticketId: tck.id,
+            previousStatus: prevStatus,
+            newStatus: 'IN_PROGRESS',
+            comment: `تم صرف وتسليم قطعة الغيار (${qty}x ${r.partName || part?.nameAr || part?.name}) للفني المختص، وتم تحويل حالة التذكرة تلقائياً إلى [قيد الإصلاح - IN_PROGRESS].`,
+            createdAt: now
           });
 
-          // If linked to a ticket in WAITING_FOR_PART, update ticket back to IN_PROGRESS
-          if (r.ticketId) {
-            const tck = store.tickets.find(t => t.id === r.ticketId || t.ticketNumber === r.ticketId);
-            if (tck) {
-              const prevStatus = tck.status;
-              tck.status = 'IN_PROGRESS';
-              tck.updatedAt = now;
-
-              if (!tck.statusHistory) tck.statusHistory = [];
-              tck.statusHistory.push({
-                id: `sh-${Date.now()}`,
-                ticketId: tck.id,
-                previousStatus: prevStatus,
-                newStatus: 'IN_PROGRESS',
-                comment: `تم صرف قطعة الغيار (${r.quantity}x ${r.partName || part?.name}) من المستودع واستئناف أعمال الإصلاح`,
-                createdAt: now
-              });
-
-              if (!tck.timeline) tck.timeline = [];
-              tck.timeline.unshift({
-                id: `tl-${Date.now()}`,
-                ticketId: tck.id,
-                timestamp: now,
-                technicianName: actor,
-                action: 'PART_DISPATCHED_TO_FIELD',
-                actionLabel: 'أمر صرف وتسليم القطعة (استئناف التذكرة)',
-                description: `تم صرف وتسليم قطعة الغيار ${r.partName || part?.name} (${r.quantity}x) من المستودع للفني. تم استئناف حالة البلاغ تلقائياً إلى قيد العمل (IN_PROGRESS) لاستكمال دورة الإصلاح.`
-              });
-            }
-          }
+          if (!tck.timeline) tck.timeline = [];
+          tck.timeline.unshift({
+            id: `tl-${Date.now()}`,
+            ticketId: tck.id,
+            timestamp: now,
+            technicianId: r.technicianId || tck.assignedTechnicianId,
+            technicianName: actor,
+            action: 'PART_DISPATCHED_TO_FIELD',
+            actionLabel: 'تم تسليم القطعة للفني (تحويل لقيد الإصلاح)',
+            description: `📢 إشعار صيانة فوري: تم صرف وتسليم قطعة الغيار ${r.partName || part?.nameAr || part?.name} (${qty}x) من المستودع للفني المعتمد. تم استئناف حالة البلاغ فوراً من [${prevStatus}] إلى [قيد الإصلاح - IN_PROGRESS] لاستكمال أعمال الإصيانة.`
+          });
         }
       } else if (status === 'REJECTED') {
         const reason = payload?.rejectedReason || (payload as any)?.rejectionReason || comment;
@@ -7566,20 +7701,24 @@ export const api = {
   },
 
   async resetDatabase() {
-    store.machines = JSON.parse(JSON.stringify(SEED_MACHINES));
-    store.buildings = JSON.parse(JSON.stringify(SEED_BUILDINGS));
-    store.locations = JSON.parse(JSON.stringify(SEED_LOCATIONS));
-    store.spareParts = JSON.parse(JSON.stringify(SEED_SPARE_PARTS));
-    store.suppliers = JSON.parse(JSON.stringify(SEED_SUPPLIERS));
-    store.tickets = JSON.parse(JSON.stringify(SEED_TICKETS));
+    store.machines = [];
+    store.buildings = [];
+    store.floors = [];
+    store.locations = [];
+    store.spareParts = [];
+    store.suppliers = [];
+    store.technicians = [];
+    store.tickets = [];
     store.partRequests = [];
     store.transactions = [];
+    store.importBatches = [];
+    store.importRows = [];
     store.auditLogs.unshift({
       id: `aud-${Date.now()}`,
       action: 'DATABASE_RESET',
       entityName: 'System',
       entityId: 'ROOT',
-      newValues: { message: 'Database reset to baseline initial seed state.' },
+      newValues: { message: 'Database reset to clean state without seed records.' },
       createdAt: new Date().toISOString()
     });
     store.save();
