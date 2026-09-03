@@ -1516,7 +1516,7 @@ export const SEED_IMPORT_ROWS: ImportRowEntity[] = [
 ];
 
 // Reactive Persistent In-Memory Store with LocalStorage Persistence
-const STORE_STORAGE_KEY = 'vending_fleet_datastore_v8_pure_clean';
+const STORE_STORAGE_KEY = 'vending_fleet_datastore_v10_clean_authoritative';
 
 export function generateMasterFleetDataset() {
   const buildings: Building[] = [
@@ -1772,7 +1772,9 @@ function loadInitialStore(): {
         'vending_fleet_datastore_v4',
         'vending_fleet_datastore_v5_clean',
         'vending_fleet_datastore_v6_clean_prod',
-        'vending_fleet_datastore_v7_clean'
+        'vending_fleet_datastore_v7_clean',
+        'vending_fleet_datastore_v8_pure_clean',
+        'vending_fleet_datastore_v9_master_baseline'
       ];
       legacyKeys.forEach(k => {
         try { localStorage.removeItem(k); } catch {}
@@ -1789,13 +1791,13 @@ function loadInitialStore(): {
           locations: Array.isArray(parsed.locations) ? parsed.locations : [],
           machines: Array.isArray(parsed.machines) ? parsed.machines : [],
           technicians: Array.isArray(parsed.technicians) ? parsed.technicians : [],
-          categories: Array.isArray(parsed.categories) ? parsed.categories : [...SEED_SPARE_CATEGORIES],
+          categories: Array.isArray(parsed.categories) ? parsed.categories : [],
           spareParts: Array.isArray(parsed.spareParts) ? parsed.spareParts : [],
           tickets: Array.isArray(parsed.tickets) ? parsed.tickets : [],
           suppliers: Array.isArray(parsed.suppliers) ? parsed.suppliers : [],
           partRequests: Array.isArray(parsed.partRequests) ? parsed.partRequests : [],
           transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
-          users: Array.isArray(parsed.users) ? parsed.users : [...SEED_USERS],
+          users: Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : [...SEED_USERS],
           auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
           importBatches: Array.isArray(parsed.importBatches) ? parsed.importBatches : [],
           importRows: Array.isArray(parsed.importRows) ? parsed.importRows : []
@@ -1806,26 +1808,46 @@ function loadInitialStore(): {
     console.warn('Failed to rehydrate datastore from localStorage:', e);
   }
 
-  // Clean Initial Baseline without polluting the persistent server database
-  const initial = {
+  // Pure Clean Initial State (Ready for Real Ingestion & Admin Confirmation)
+  return {
     buildings: [],
     floors: [],
     locations: [],
     machines: [],
     technicians: [],
-    categories: [...SEED_SPARE_CATEGORIES],
+    categories: [],
     spareParts: [],
     tickets: [],
     suppliers: [],
     partRequests: [],
     transactions: [],
-    users: [...SEED_USERS],
-    auditLogs: [],
+    users: [
+      {
+        id: 'usr-admin-01',
+        email: 'admin@vendingfleet.com',
+        fullName: 'مدير النظام',
+        phone: '+966 50 123 4567',
+        role: 'SUPER_ADMIN',
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString()
+      }
+    ],
+    auditLogs: [
+      {
+        id: `aud-${Date.now()}`,
+        action: 'DATABASE_INITIALIZED',
+        entityName: 'System',
+        entityId: 'ROOT',
+        userName: 'مدير النظام',
+        newValues: { message: 'قاعدة البيانات نظيفة تماماً وجاهزة لاستقبال وتخزين البيانات الحقيقية للشركة.' },
+        createdAt: new Date().toISOString()
+      }
+    ],
     importBatches: [],
     importRows: []
   };
-
-  return initial;
 }
 
 class DataStore {
@@ -7700,37 +7722,233 @@ export const api = {
     }
   },
 
+  async commitMasterBaseline(payload?: { confirmedBy?: string; notes?: string }) {
+    const confirmedBy = payload?.confirmedBy || 'مدير النظام';
+    const notes = payload?.notes || 'تم اعتماد وحفظ البيانات الحقيقية الحالية كنسخة أساسية دائمة للنظام';
+
+    try {
+      const res = await apiFetch<any>('/system/commit-baseline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmedBy, notes })
+      });
+
+      store.auditLogs.unshift({
+        id: `aud-${Date.now()}`,
+        action: 'BASELINE_COMMITTED',
+        entityName: 'System',
+        entityId: 'ROOT',
+        userName: confirmedBy,
+        newValues: {
+          message: `تم اعتماد وحفظ البيانات الحقيقية الحالية كنسخة أساسية دائمة للنظام بواسطة ${confirmedBy}.`,
+          machinesCount: store.machines.length,
+          locationsCount: store.locations.length,
+          techniciansCount: store.technicians.length,
+          sparePartsCount: store.spareParts.length
+        },
+        createdAt: new Date().toISOString()
+      });
+      store.save();
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vending-fleet-data-updated'));
+      }
+
+      return res;
+    } catch (err: any) {
+      console.error('commitMasterBaseline failed:', err);
+      throw err;
+    }
+  },
+
+  async restoreCommittedBaseline() {
+    try {
+      const res = await apiFetch<any>('/system/restore-committed-baseline', { method: 'POST' });
+      await store.fetchServerState();
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vending-fleet-data-updated'));
+      }
+
+      return res;
+    } catch (err: any) {
+      console.error('restoreCommittedBaseline failed:', err);
+      throw err;
+    }
+  },
+
+  async getBaselineStatus() {
+    try {
+      const res = await apiFetch<any>('/system/baseline-status', { method: 'GET' });
+      return res;
+    } catch {
+      return {
+        isCommitted: false,
+        committedAt: null,
+        committedBy: null,
+        notes: null,
+        hasCommittedBaselineOnDisk: false,
+        stats: {
+          machines: store.machines.length,
+          buildings: store.buildings.length,
+          locations: store.locations.length,
+          technicians: store.technicians.length,
+          spareParts: store.spareParts.length,
+          tickets: store.tickets.length
+        }
+      };
+    }
+  },
+
+  async purgeDatabase(options?: { deleteCommittedBaseline?: boolean }) {
+    try {
+      const res = await apiFetch<any>('/system/purge-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteCommittedBaseline: options?.deleteCommittedBaseline === true })
+      });
+      await store.fetchServerState();
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vending-fleet-data-updated'));
+      }
+
+      return res;
+    } catch {
+      // Fallback local purge
+      store.machines = [];
+      store.buildings = [];
+      store.floors = [];
+      store.locations = [];
+      store.tickets = [];
+      store.technicians = [];
+      store.categories = [];
+      store.spareParts = [];
+      store.suppliers = [];
+      store.partRequests = [];
+      store.transactions = [];
+      store.importBatches = [];
+      store.importRows = [];
+      store.auditLogs.unshift({
+        id: `aud-${Date.now()}`,
+        action: 'DATABASE_PURGED',
+        entityName: 'System',
+        entityId: 'ROOT',
+        userName: 'مدير النظام',
+        newValues: { message: 'تم تفريغ كافة البيانات الافتراضية بنجاح.' },
+        createdAt: new Date().toISOString()
+      });
+      store.save();
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vending-fleet-data-updated'));
+      }
+
+      return {
+        success: true,
+        message: 'تم تفريغ كافة البيانات بنجاح.'
+      };
+    }
+  },
+
   async resetDatabase() {
-    store.machines = [];
-    store.buildings = [];
-    store.floors = [];
-    store.locations = [];
-    store.spareParts = [];
-    store.suppliers = [];
-    store.technicians = [];
-    store.tickets = [];
-    store.partRequests = [];
-    store.transactions = [];
-    store.importBatches = [];
-    store.importRows = [];
+    try {
+      const res = await apiFetch<any>('/reset-database', { method: 'POST' });
+      await store.fetchServerState();
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vending-fleet-data-updated'));
+      }
+      return res;
+    } catch {
+      return this.purgeDatabase();
+    }
+  },
+
+  async restoreMasterBaseline() {
+    return this.restoreCommittedBaseline();
+  },
+
+  async exportFullBackup() {
+    const fullSnapshot = {
+      machines: store.machines,
+      buildings: store.buildings,
+      floors: store.floors,
+      locations: store.locations,
+      tickets: store.tickets,
+      technicians: store.technicians,
+      categories: store.categories,
+      spareParts: store.spareParts,
+      suppliers: store.suppliers,
+      partRequests: store.partRequests,
+      transactions: store.transactions,
+      users: store.users,
+      auditLogs: store.auditLogs,
+      importBatches: store.importBatches,
+      importRows: store.importRows,
+      exportedAt: new Date().toISOString(),
+      version: '2026.1-master-baseline'
+    };
+
+    if (typeof window !== 'undefined') {
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(fullSnapshot, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `vending_fleet_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    return fullSnapshot;
+  },
+
+  async restoreFullBackup(backupData: any) {
+    if (!backupData || typeof backupData !== 'object' || !Array.isArray(backupData.machines)) {
+      throw new Error('الملف غير صالح أو لا يحتوي على بنية بيانات الماكينات المطلوبة.');
+    }
+
+    if (Array.isArray(backupData.machines)) store.machines = backupData.machines;
+    if (Array.isArray(backupData.buildings)) store.buildings = backupData.buildings;
+    if (Array.isArray(backupData.floors)) store.floors = backupData.floors;
+    if (Array.isArray(backupData.locations)) store.locations = backupData.locations;
+    if (Array.isArray(backupData.tickets)) store.tickets = backupData.tickets;
+    if (Array.isArray(backupData.technicians)) store.technicians = backupData.technicians;
+    if (Array.isArray(backupData.categories)) store.categories = backupData.categories;
+    if (Array.isArray(backupData.spareParts)) store.spareParts = backupData.spareParts;
+    if (Array.isArray(backupData.suppliers)) store.suppliers = backupData.suppliers;
+    if (Array.isArray(backupData.partRequests)) store.partRequests = backupData.partRequests;
+    if (Array.isArray(backupData.transactions)) store.transactions = backupData.transactions;
+    if (Array.isArray(backupData.importBatches)) store.importBatches = backupData.importBatches;
+    if (Array.isArray(backupData.importRows)) store.importRows = backupData.importRows;
+
     store.auditLogs.unshift({
       id: `aud-${Date.now()}`,
-      action: 'DATABASE_RESET',
+      action: 'BACKUP_RESTORED',
       entityName: 'System',
       entityId: 'ROOT',
-      newValues: { message: 'Database reset to clean state without seed records.' },
+      newValues: { message: `Backup restored successfully with ${store.machines.length} machines.` },
       createdAt: new Date().toISOString()
     });
     store.save();
 
     try {
-      await apiFetch<any>('/reset-database', { method: 'POST' });
+      await apiFetch<any>('/system/restore-backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backupData)
+      });
     } catch {}
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('vending-fleet-data-updated'));
     }
-    return { success: true };
+
+    return {
+      success: true,
+      machinesCount: store.machines.length,
+      ticketsCount: store.tickets.length
+    };
   },
 
   async getDatabaseInfo() {

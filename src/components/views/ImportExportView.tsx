@@ -29,7 +29,10 @@ import {
   FileText,
   QrCode,
   Sliders,
-  Play
+  Play,
+  Package,
+  Users,
+  Wrench
 } from 'lucide-react';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
@@ -264,6 +267,21 @@ export const ImportExportView: React.FC<ImportExportViewProps> = ({ onNavigate }
       showToast('Real Workbook Analyzed', `Parsed ${result.totalRecords} machines: ${result.validCount} Valid (Group A), ${result.reviewRequiredCount} Review (Group B), ${result.invalidCount} Invalid (Group C)`, 'success');
     } catch (err: any) {
       showToast('Error', err.message, 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Direct One-Click Activation: Restore & Apply Authoritative Master Baseline (189 Machines)
+  const handleDirectRestoreMasterBaseline = async () => {
+    if (!window.confirm('هل تريد تفعيل واعتماد قاعدة البيانات الأساسية المعتمدة (189 ماكينة + المباني + المخزون والفنيين) فوراً في النظام؟')) return;
+    setIsProcessing(true);
+    try {
+      const res = await api.restoreMasterBaseline();
+      showToast('Master Fleet Activated', `تم تفعيل واعتماد قاعدة البيانات الأساسية بنجاح (${res.machinesCount || 189} ماكينة معتمدة)!`, 'success');
+      loadDbStats();
+    } catch (err: any) {
+      showToast('Error', err.message || 'فشلت استعادة البيانات الأساسية', 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -762,15 +780,26 @@ export const ImportExportView: React.FC<ImportExportViewProps> = ({ onNavigate }
                     </p>
                   </div>
                 </div>
-                <Button
-                  variant="primary"
-                  onClick={handleLoadRealUploadedWorkbook}
-                  disabled={isProcessing}
-                  className="whitespace-nowrap bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2"
-                >
-                  {isProcessing ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4 mr-2" />}
-                  Inspect Real Fleet (189)
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="primary"
+                    onClick={handleDirectRestoreMasterBaseline}
+                    disabled={isProcessing}
+                    className="whitespace-nowrap bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2"
+                  >
+                    {isProcessing ? <LoadingSpinner size="sm" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                    اعتماد وتفعيل الـ 189 ماكينة فوراً
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={handleLoadRealUploadedWorkbook}
+                    disabled={isProcessing}
+                    className="whitespace-nowrap font-semibold px-3 py-2"
+                  >
+                    {isProcessing ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4 mr-1.5" />}
+                    فحص الملف بالمعالج (Inspect)
+                  </Button>
+                </div>
               </div>
             </Card>
 
@@ -833,27 +862,69 @@ export const ImportExportView: React.FC<ImportExportViewProps> = ({ onNavigate }
             <Card className="p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-3">
                 <Download className="w-4 h-4 text-blue-600" />
-                Downloadable Resources
+                <span>قوالب إكسيل مخصصة لكل قسم (.xlsx)</span>
               </h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
+                قم بتنزيل النموذج المخصص لكل قسم لتعبئة بيانات الشركة الحقيقية واستيرادها:
+              </p>
               <div className="space-y-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full justify-start text-xs"
-                  onClick={() => excelService.downloadTemplate()}
+                  className="w-full justify-start text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-blue-500"
+                  onClick={() => excelService.downloadMachinesTemplate()}
                 >
-                  <FileCode className="w-4 h-4 mr-2 text-slate-500" />
-                  Standard Single-Column Template (.xlsx)
+                  <FileSpreadsheet className="w-4 h-4 mr-2 text-blue-600" />
+                  قالب أجهزة وماكينات البيع الذاتي (Machines)
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full justify-start text-xs"
-                  onClick={() => excelService.downloadOperationalBenchmarkFile()}
+                  className="w-full justify-start text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-emerald-500"
+                  onClick={() => excelService.downloadLocationsTemplate()}
                 >
-                  <FileSpreadsheet className="w-4 h-4 mr-2 text-indigo-600" />
-                  Operational Benchmark Multi-Sheet (.xlsx)
+                  <Building2 className="w-4 h-4 mr-2 text-emerald-600" />
+                  قالب المباني والمواقع والغرف (Locations)
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-amber-500"
+                  onClick={() => excelService.downloadSparePartsTemplate()}
+                >
+                  <Package className="w-4 h-4 mr-2 text-amber-600" />
+                  قالب قطع الغيار والمستودع (Spare Parts)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-purple-500"
+                  onClick={() => excelService.downloadTechniciansTemplate()}
+                >
+                  <Users className="w-4 h-4 mr-2 text-purple-600" />
+                  قالب الفنيين وفرق الصيانة (Technicians)
+                </Button>
+
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start text-xs text-slate-500"
+                    onClick={() => excelService.downloadTemplate()}
+                  >
+                    <FileCode className="w-4 h-4 mr-2 text-slate-400" />
+                    القالب العام الموحد (Single-Column Template)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start text-xs text-slate-500"
+                    onClick={() => excelService.downloadOperationalBenchmarkFile()}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 mr-2 text-indigo-500" />
+                    النموذج المرجعي متعدد الأوراق (189 ماكينة)
+                  </Button>
+                </div>
               </div>
             </Card>
           </div>

@@ -1463,32 +1463,161 @@ export const excelService = {
   },
 
   /**
-   * Download clean standard CSV/XLSX template
+   * Download clean standard CSV/XLSX template for Vending Machines
    */
   downloadTemplate() {
+    this.downloadMachinesTemplate();
+  },
+
+  /**
+   * 1. قالب استيراد أجهزة البيع الذاتي (Vending Machines Import Template)
+   */
+  downloadMachinesTemplate() {
     const sampleData = [
       {
-        'Machine Number': 'VM-B01-F01-01',
-        'Serial Number': 'SN-2024-88491',
-        'Building Name': 'Main Administration Complex',
-        'Location': 'Ground Floor Lobby West Gate',
-        'Machine Type': 'Combination Snack & Soda',
-        'Status': 'OPERATIONAL'
+        'رقم الماكينة (Machine ID)': 'VM-HQ-001',
+        'الرقم التسلسلي (Serial Number)': 'SN-2026-00101',
+        'اسم المبنى (Building)': 'المبنى الرئيسي',
+        'الدور (Floor)': 'الدور الأرضي',
+        'الموقع الدقيق (Specific Location)': 'البهو الرئيسي بجوار الاستقبال',
+        'طراز الماكينة (Machine Type)': 'Combination Snack & Soda',
+        'الشركة المصنعة (Brand)': 'Crane National Vendors',
+        'الموديل (Model)': 'Merchant Media 6',
+        'الحالة التشغيلية (Status)': 'OPERATIONAL',
+        'تاريخ التركيب (Install Date)': '2026-01-15',
+        'ملاحظات تشغيلية (Notes)': 'ماكينة ذكية تدعم الدفع بمدى وفيزا'
       },
       {
-        'Machine Number': 'VM-B02-F02-01',
-        'Serial Number': 'SN-2024-99120',
-        'Building Name': 'College of Engineering & Computing',
-        'Location': 'Second Floor Computer Labs',
-        'Machine Type': 'Bean-to-Cup Espresso',
-        'Status': 'OPERATIONAL'
+        'رقم الماكينة (Machine ID)': 'VM-HQ-002',
+        'الرقم التسلسلي (Serial Number)': 'SN-2026-00102',
+        'اسم المبنى (Building)': 'المبنى الرئيسي',
+        'الدور (Floor)': 'الدور الأول',
+        'الموقع الدقيق (Specific Location)': 'استراحة الموظفين الجناح الشرقي',
+        'طراز الماكينة (Machine Type)': 'Bean-to-Cup Espresso',
+        'الشركة المصنعة (Brand)': 'Necta / Evoca',
+        'الموديل (Model)': 'Kalea Plus',
+        'الحالة التشغيلية (Status)': 'OPERATIONAL',
+        'تاريخ التركيب (Install Date)': '2026-01-20',
+        'ملاحظات تشغيلية (Notes)': 'ماكينة قهوة مختصة'
       }
     ];
 
     const worksheet = XLSX.utils.json_to_sheet(sampleData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Import Template');
-    XLSX.writeFile(workbook, 'vending_machines_import_template.xlsx');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'أجهزة_البيع_الذاتي');
+    XLSX.writeFile(workbook, 'قالب_استيراد_أجهزة_البيع_الذاتي.xlsx');
+  },
+
+  /**
+   * 2. قالب استيراد المباني والمواقع الميدانية (Buildings & Locations Template)
+   */
+  downloadLocationsTemplate() {
+    const sampleData = [
+      {
+        'رمز المبنى (Building Code)': 'BLD-HQ',
+        'اسم المبنى بالعربي (Building Name Ar)': 'المقر الرئيسي للإدارة',
+        'اسم المبنى بالإنجليزي (Building Name En)': 'Corporate Headquarters',
+        'العنوان الميداني (Address)': 'طريق الملك فهد، حي الصحافة',
+        'اسم أو رقم الدور (Floor)': 'الدور الأرضي',
+        'اسم الموقع الدقيق (Location Name)': 'البهو الرئيسي - المدخل الغربي',
+        'المنطقة أو القطاع (Zone)': 'المنطقة أ (Zone A)'
+      },
+      {
+        'رمز المبنى (Building Code)': 'BLD-HQ',
+        'اسم المبنى بالعربي (Building Name Ar)': 'المقر الرئيسي للإدارة',
+        'اسم المبنى بالإنجليزي (Building Name En)': 'Corporate Headquarters',
+        'العنوان الميداني (Address)': 'طريق الملك فهد، حي الصحافة',
+        'اسم أو رقم الدور (Floor)': 'الدور الأول',
+        'اسم الموقع الدقيق (Location Name)': 'استراحة الموظفين وقاعة الاجتماعات',
+        'المنطقة أو القطاع (Zone)': 'المنطقة ب (Zone B)'
+      },
+      {
+        'رمز المبنى (Building Code)': 'BLD-OPS',
+        'اسم المبنى بالعربي (Building Name Ar)': 'مجمع العمليات والمستودعات',
+        'اسم المبنى بالإنجليزي (Building Name En)': 'Operations & Logistics Center',
+        'العنوان الميداني (Address)': 'المدينة الصناعية الثانية',
+        'اسم أو رقم الدور (Floor)': 'الدور الأرضي',
+        'اسم الموقع الدقيق (Location Name)': 'بوابة الشحن والتفريغ الرئيسية',
+        'المنطقة أو القطاع (Zone)': 'المنطقة ج (Zone C)'
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'المباني_والمواقع');
+    XLSX.writeFile(workbook, 'قالب_استيراد_المباني_والمواقع.xlsx');
+  },
+
+  /**
+   * 3. قالب استيراد الفنيين وفرق الصيانة (Technicians Import Template)
+   */
+  downloadTechniciansTemplate() {
+    const sampleData = [
+      {
+        'الاسم بالعربي (Full Name Ar)': 'م. فهد السعيد',
+        'الاسم بالإنجليزي (Full Name En)': 'Fahad Al-Saeed',
+        'البريد الإلكتروني (Email)': 'fahad@vendingfleet.com',
+        'رقم الجوال (Phone)': '+966 55 123 4567',
+        'التخصص الفني (Specialty)': 'تبريد وإلكترونيات وأنظمة دفع',
+        'المباني أو المناطق المغطاة (Coverage)': 'المبنى الرئيسي، مجمع العمليات'
+      },
+      {
+        'الاسم بالعربي (Full Name Ar)': 'م. أحمد الشمري',
+        'الاسم بالإنجليزي (Full Name En)': 'Ahmed Al-Shammari',
+        'البريد الإلكتروني (Email)': 'ahmed@vendingfleet.com',
+        'رقم الجوال (Phone)': '+966 50 987 6543',
+        'التخصص الفني (Specialty)': 'صيانة ميكانيكية ومضخات قهوة',
+        'المباني أو المناطق المغطاة (Coverage)': 'المنطقة الشمالية والوسطى'
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'فريق_الفنيين');
+    XLSX.writeFile(workbook, 'قالب_استيراد_فريق_الفنيين.xlsx');
+  },
+
+  /**
+   * 4. قالب استيراد قطع الغيار والمخزون (Spare Parts & Inventory Template)
+   */
+  downloadSparePartsTemplate() {
+    const sampleData = [
+      {
+        'رمز القطعة (Part SKU)': 'PRT-VAL-01',
+        'اسم القطعة بالعربي (Part Name Ar)': 'صمام مياه كهرومغناطيسي 24 فولت',
+        'اسم القطعة بالإنجليزي (Part Name En)': 'Solenoid Water Valve 24V',
+        'التصنيف (Category)': 'سباكة ومياه (Plumbing & Water)',
+        'الكمية الحالية في المستودع (Quantity)': 25,
+        'الحد الأدنى للتنبيه (Min Stock Alert)': 5,
+        'سعر الوحدة ر.س (Unit Price SAR)': 185.00,
+        'اسم المورد المعتمد (Supplier)': 'شركة توريدات قطع الغيار المتقدمة'
+      },
+      {
+        'رمز القطعة (Part SKU)': 'PRT-POS-02',
+        'اسم القطعة بالعربي (Part Name Ar)': 'قارئ بطاقات الدفع الذكية ومدى MDB',
+        'اسم القطعة بالإنجليزي (Part Name En)': 'Nayax VPOS Touch Payment Reader',
+        'التصنيف (Category)': 'أنظمة الدفع والتحكم (Payment Systems)',
+        'الكمية الحالية في المستودع (Quantity)': 10,
+        'الحد الأدنى للتنبيه (Min Stock Alert)': 2,
+        'سعر الوحدة ر.س (Unit Price SAR)': 1250.00,
+        'اسم المورد المعتمد (Supplier)': 'مؤسسة التقنية لحلول الدفع'
+      },
+      {
+        'رمز القطعة (Part SKU)': 'PRT-MOT-03',
+        'اسم القطعة بالعربي (Part Name Ar)': 'محرك حلزوني 24V للمشروبات والوجبات',
+        'اسم القطعة بالإنجليزي (Part Name En)': '24V Spiral Delivery Motor',
+        'التصنيف (Category)': 'ميكانيكا ومحركات (Motors & Mechanical)',
+        'الكمية الحالية في المستودع (Quantity)': 40,
+        'الحد الأدنى للتنبيه (Min Stock Alert)': 8,
+        'سعر الوحدة ر.س (Unit Price SAR)': 95.00,
+        'اسم المورد المعتمد (Supplier)': 'شركة توريدات قطع الغيار المتقدمة'
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'قطع_الغيار_والمخزون');
+    XLSX.writeFile(workbook, 'قالب_استيراد_قطع_الغيار_والمخزون.xlsx');
   },
 
   /**

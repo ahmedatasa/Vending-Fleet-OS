@@ -46,8 +46,25 @@ const DEFAULT_SETTINGS: SystemSettings = {
   supportWhatsapp: '+966-50-000-0000'
 };
 
-// Helper to generate fresh complete database (clean, with no default/seed fleet records)
-function createInitialDatabase() {
+// Database File Path and Permanent Master Baseline Snapshot Path
+const MASTER_BASELINE_FILE = path.join(process.cwd(), 'fleet_master_baseline.json');
+
+const DEFAULT_CLEAN_ADMIN_USERS = [
+  {
+    id: 'usr-admin-01',
+    email: 'admin@vendingfleet.com',
+    fullName: 'مدير النظام',
+    phone: '+966 50 123 4567',
+    role: 'SUPER_ADMIN',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString()
+  }
+];
+
+// Pure Clean Database Generator (Zero Mock / Zero Seed Records - Ready for Real Ingestion)
+function createCleanDatabase() {
   return {
     buildings: [],
     floors: [],
@@ -55,16 +72,31 @@ function createInitialDatabase() {
     machines: [],
     tickets: [],
     technicians: [],
-    categories: [...SEED_SPARE_CATEGORIES],
+    categories: [],
     spareParts: [],
     suppliers: [],
     partRequests: [],
     transactions: [],
-    users: [...SEED_USERS],
-    auditLogs: [],
+    users: [...DEFAULT_CLEAN_ADMIN_USERS],
+    auditLogs: [
+      {
+        id: `aud-${Date.now()}`,
+        action: 'DATABASE_INITIALIZED',
+        entityName: 'System',
+        entityId: 'ROOT',
+        userName: 'مدير النظام',
+        newValues: { message: 'قاعدة البيانات نظيفة تماماً وجاهزة لاستقبال وتخزين البيانات الحقيقية للشركة.' },
+        timestamp: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      }
+    ],
     importBatches: [],
     importRows: [],
-    settings: { ...DEFAULT_SETTINGS }
+    settings: { ...DEFAULT_SETTINGS },
+    isBaselineCommitted: false,
+    baselineCommittedAt: null,
+    baselineCommittedBy: null,
+    baselineNotes: null
   };
 }
 
@@ -82,6 +114,7 @@ function getStore() {
       if (raw && raw.trim().length > 0) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
+          // Validate and ensure all required collection arrays exist
           if (!parsed.settings) parsed.settings = { ...DEFAULT_SETTINGS };
           if (!Array.isArray(parsed.machines)) parsed.machines = [];
           if (!Array.isArray(parsed.tickets)) parsed.tickets = [];
@@ -89,26 +122,42 @@ function getStore() {
           if (!Array.isArray(parsed.floors)) parsed.floors = [];
           if (!Array.isArray(parsed.locations)) parsed.locations = [];
           if (!Array.isArray(parsed.technicians)) parsed.technicians = [];
-          if (!Array.isArray(parsed.categories)) parsed.categories = [...SEED_SPARE_CATEGORIES];
+          if (!Array.isArray(parsed.categories)) parsed.categories = [];
           if (!Array.isArray(parsed.spareParts)) parsed.spareParts = [];
           if (!Array.isArray(parsed.suppliers)) parsed.suppliers = [];
           if (!Array.isArray(parsed.partRequests)) parsed.partRequests = [];
           if (!Array.isArray(parsed.transactions)) parsed.transactions = [];
-          if (!Array.isArray(parsed.users)) parsed.users = [...SEED_USERS];
+          if (!Array.isArray(parsed.users) || parsed.users.length === 0) parsed.users = [...DEFAULT_CLEAN_ADMIN_USERS];
           if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
           if (!Array.isArray(parsed.importBatches)) parsed.importBatches = [];
           if (!Array.isArray(parsed.importRows)) parsed.importRows = [];
+
           inMemoryStore = parsed;
           return inMemoryStore;
         }
+      }
+    }
+
+    // If DB_FILE_PATH does not exist, check if an authoritative baseline was previously committed by the System Admin
+    if (fs.existsSync(MASTER_BASELINE_FILE)) {
+      try {
+        const rawBaseline = fs.readFileSync(MASTER_BASELINE_FILE, 'utf8');
+        const parsedBaseline = JSON.parse(rawBaseline);
+        if (parsedBaseline && typeof parsedBaseline === 'object') {
+          inMemoryStore = parsedBaseline;
+          saveStore(inMemoryStore);
+          return inMemoryStore;
+        }
+      } catch (err) {
+        console.warn('Could not read master baseline file:', err);
       }
     }
   } catch (err) {
     console.error('Error reading JSON db file:', err);
   }
 
-  // Fallback initial complete master dataset (clean)
-  inMemoryStore = createInitialDatabase();
+  // Otherwise, initialize with a clean, unpolluted database ready for real ingestion
+  inMemoryStore = createCleanDatabase();
   saveStore(inMemoryStore);
   return inMemoryStore;
 }
@@ -139,44 +188,252 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  // Reset database endpoint
-  apiRouter.post('/reset-database', (req, res) => {
-    const fresh = createInitialDatabase();
-    saveStore(fresh);
-    res.json({ status: 'ok', message: 'Database reset to master fleet dataset', machinesCount: fresh.machines.length, ticketsCount: fresh.tickets.length });
-  });
-
-  // Clear / Purge Virtual Data endpoint (Start clean page)
-  apiRouter.post('/clear-database', (req, res) => {
+  // Commit Current Real Database as System Authoritative Master Baseline (Requires System Admin Confirmation)
+  apiRouter.post('/system/commit-baseline', (req, res) => {
     const store = getStore();
-    const keepTechniciansAndParts = req.body?.keepTechniciansAndParts !== false;
-    store.machines = [];
-    store.tickets = [];
-    store.buildings = [];
-    store.floors = [];
-    store.locations = [];
-    store.importBatches = [];
-    store.importRows = [];
-    store.partRequests = [];
-    store.transactions = [];
-    if (!keepTechniciansAndParts) {
-      store.spareParts = [];
-      store.categories = [];
-      store.suppliers = [];
-    }
+    const confirmedBy = req.body?.confirmedBy || 'مدير النظام';
+    const notes = req.body?.notes || 'تم اعتماد وتثبيت قاعدة البيانات الحقيقية كنسخة أساسية دائمة للنظام';
+
+    store.isBaselineCommitted = true;
+    store.baselineCommittedAt = new Date().toISOString();
+    store.baselineCommittedBy = confirmedBy;
+    store.baselineNotes = notes;
+
     if (!store.auditLogs) store.auditLogs = [];
     store.auditLogs.unshift({
       id: `aud-${Date.now()}`,
-      action: 'VIRTUAL_DATABASE_PURGED',
+      action: 'BASELINE_COMMITTED',
       entityName: 'System',
       entityId: 'ROOT',
-      userName: 'Super Administrator',
-      newValues: { message: 'All virtual/seed fleet records were wiped clean. Ready for real Excel master ingestion.' },
+      userName: confirmedBy,
+      newValues: {
+        message: `تم اعتماد وحفظ البيانات الحقيقية الحالية كنسخة أساسية دائمة للنظام بواسطة ${confirmedBy}.`,
+        machinesCount: store.machines.length,
+        buildingsCount: store.buildings.length,
+        locationsCount: store.locations.length,
+        techniciansCount: store.technicians.length,
+        sparePartsCount: store.spareParts.length
+      },
       timestamp: new Date().toISOString(),
       createdAt: new Date().toISOString()
     });
+
+    try {
+      fs.writeFileSync(MASTER_BASELINE_FILE, JSON.stringify(store, null, 2), 'utf8');
+    } catch (err) {
+      console.error('Failed to write authoritative master baseline file:', err);
+      return res.status(500).json({ error: 'فشل حفظ ملف النسخة الأساسية على الخادم.' });
+    }
+
     saveStore(store);
-    res.json({ status: 'ok', message: 'All virtual data purged. System is now clean and empty.', machinesCount: 0, ticketsCount: 0 });
+
+    res.json({
+      success: true,
+      message: 'تم حفظ واعتماد البيانات الحقيقية الحالية كنسخة أساسية دائمة للنظام بنجاح!',
+      committedAt: store.baselineCommittedAt,
+      committedBy: store.baselineCommittedBy,
+      stats: {
+        machines: store.machines.length,
+        buildings: store.buildings.length,
+        floors: store.floors.length,
+        locations: store.locations.length,
+        technicians: store.technicians.length,
+        spareParts: store.spareParts.length,
+        tickets: store.tickets.length
+      }
+    });
+  });
+
+  // Restore Committed Master Baseline endpoint
+  apiRouter.post('/system/restore-committed-baseline', (req, res) => {
+    if (!fs.existsSync(MASTER_BASELINE_FILE)) {
+      return res.status(400).json({
+        error: 'لم يتم حفظ أي نسخة أساسية معتمدة من مدير النظام حتى الآن. يرجى إدخال البيانات الحقيقية واعتمادها أولاً.'
+      });
+    }
+
+    try {
+      const raw = fs.readFileSync(MASTER_BASELINE_FILE, 'utf8');
+      const baseline = JSON.parse(raw);
+      if (!baseline || typeof baseline !== 'object') {
+        return res.status(500).json({ error: 'ملف النسخة الأساسية المحفوظ تالف أو غير صالح.' });
+      }
+
+      if (!baseline.auditLogs) baseline.auditLogs = [];
+      baseline.auditLogs.unshift({
+        id: `aud-${Date.now()}`,
+        action: 'BASELINE_RESTORED',
+        entityName: 'System',
+        entityId: 'ROOT',
+        userName: 'مدير النظام',
+        newValues: { message: 'تمت استعادة النسخة الأساسية المعتمدة بنجاح.' },
+        timestamp: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      });
+
+      saveStore(baseline);
+
+      res.json({
+        success: true,
+        message: 'تمت استعادة النسخة الأساسية المعتمدة بنجاح!',
+        committedAt: baseline.baselineCommittedAt,
+        committedBy: baseline.baselineCommittedBy,
+        stats: {
+          machines: baseline.machines.length,
+          buildings: baseline.buildings.length,
+          floors: baseline.floors.length,
+          locations: baseline.locations.length,
+          technicians: baseline.technicians.length,
+          spareParts: baseline.spareParts.length,
+          tickets: baseline.tickets.length
+        }
+      });
+    } catch (err: any) {
+      console.error('Failed to restore committed baseline:', err);
+      res.status(500).json({ error: 'حدث خطأ أثناء استعادة النسخة الأساسية: ' + err.message });
+    }
+  });
+
+  // Get Baseline Status
+  apiRouter.get('/system/baseline-status', (req, res) => {
+    const store = getStore();
+    res.json({
+      isCommitted: !!store.isBaselineCommitted,
+      committedAt: store.baselineCommittedAt || null,
+      committedBy: store.baselineCommittedBy || null,
+      notes: store.baselineNotes || null,
+      hasCommittedBaselineOnDisk: fs.existsSync(MASTER_BASELINE_FILE),
+      stats: {
+        machines: store.machines?.length || 0,
+        buildings: store.buildings?.length || 0,
+        floors: store.floors?.length || 0,
+        locations: store.locations?.length || 0,
+        technicians: store.technicians?.length || 0,
+        spareParts: store.spareParts?.length || 0,
+        tickets: store.tickets?.length || 0
+      }
+    });
+  });
+
+  // Reset database endpoint (Respects committed baseline or resets to clean state)
+  apiRouter.post('/reset-database', (req, res) => {
+    if (fs.existsSync(MASTER_BASELINE_FILE)) {
+      try {
+        const raw = fs.readFileSync(MASTER_BASELINE_FILE, 'utf8');
+        const baseline = JSON.parse(raw);
+        saveStore(baseline);
+        return res.json({
+          status: 'ok',
+          message: 'تمت استعادة النسخة الأساسية المعتمدة للنظام.',
+          machinesCount: baseline.machines?.length || 0,
+          ticketsCount: baseline.tickets?.length || 0
+        });
+      } catch {}
+    }
+
+    const clean = createCleanDatabase();
+    saveStore(clean);
+    res.json({
+      status: 'ok',
+      message: 'تمت إعادة ضبط قاعدة البيانات إلى الحالة الأولية النظيفة.',
+      machinesCount: 0,
+      ticketsCount: 0
+    });
+  });
+
+  // Alias for backward compatibility
+  apiRouter.post('/system/restore-baseline', (req, res) => {
+    if (fs.existsSync(MASTER_BASELINE_FILE)) {
+      try {
+        const raw = fs.readFileSync(MASTER_BASELINE_FILE, 'utf8');
+        const baseline = JSON.parse(raw);
+        saveStore(baseline);
+        return res.json({
+          success: true,
+          message: 'تمت استعادة النسخة الأساسية المعتمدة للنظام بنجاح.',
+          stats: {
+            machines: baseline.machines?.length || 0,
+            tickets: baseline.tickets?.length || 0,
+            buildings: baseline.buildings?.length || 0,
+            locations: baseline.locations?.length || 0,
+            technicians: baseline.technicians?.length || 0,
+            spareParts: baseline.spareParts?.length || 0
+          }
+        });
+      } catch {}
+    }
+
+    const clean = createCleanDatabase();
+    saveStore(clean);
+    res.json({
+      success: true,
+      message: 'قاعدة البيانات نظيفة وجاهزة لاستقبال البيانات الحقيقية.',
+      stats: { machines: 0, tickets: 0, buildings: 0, locations: 0, technicians: 0, spareParts: 0 }
+    });
+  });
+
+  // System Full Backup Export (JSON snapshot)
+  apiRouter.get('/system/backup', (req, res) => {
+    const store = getStore();
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="vending_fleet_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json"`);
+    res.json(store);
+  });
+
+  // System Full Backup Restore (Upload JSON snapshot)
+  apiRouter.post('/system/restore-backup', (req, res) => {
+    const backupData = req.body;
+    if (!backupData || typeof backupData !== 'object') {
+      return res.status(400).json({ error: 'Invalid backup payload. Expected valid JSON object.' });
+    }
+    if (!Array.isArray(backupData.machines)) {
+      return res.status(400).json({ error: 'Invalid backup format: missing machines array.' });
+    }
+
+    const merged = {
+      ...createCleanDatabase(),
+      ...backupData
+    };
+    saveStore(merged);
+    res.json({
+      success: true,
+      message: 'Backup restored successfully.',
+      machinesCount: merged.machines.length,
+      ticketsCount: merged.tickets?.length || 0,
+      partsCount: merged.spareParts?.length || 0
+    });
+  });
+
+  // Clear / Purge All Virtual & Demo Data (Start 100% Clean)
+  apiRouter.post('/system/purge-all', (req, res) => {
+    const deleteCommittedBaseline = req.body?.deleteCommittedBaseline === true;
+    if (deleteCommittedBaseline && fs.existsSync(MASTER_BASELINE_FILE)) {
+      try {
+        fs.unlinkSync(MASTER_BASELINE_FILE);
+      } catch (e) {
+        console.warn('Could not delete master baseline file:', e);
+      }
+    }
+
+    const clean = createCleanDatabase();
+    saveStore(clean);
+    res.json({
+      success: true,
+      status: 'ok',
+      message: 'تم تفريغ كافة البيانات وحذف السجلات الافتراضية بنجاح. النظام الآن نظيف تماماً وجاهز لإدخال أو استيراد البيانات الحقيقية.',
+      stats: { machines: 0, tickets: 0, locations: 0, technicians: 0, spareParts: 0 }
+    });
+  });
+
+  apiRouter.post('/clear-database', (req, res) => {
+    const clean = createCleanDatabase();
+    saveStore(clean);
+    res.json({
+      status: 'ok',
+      message: 'تم تفريغ وحذف جميع البيانات الافتراضية بنجاح. قاعدة البيانات الآن نظيفة وجاهزة.',
+      machinesCount: 0,
+      ticketsCount: 0
+    });
   });
 
   // Get Complete Authoritative Fleet Database State

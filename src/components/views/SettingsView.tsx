@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Settings,
   Database,
@@ -15,10 +15,21 @@ import {
   Mail,
   Headphones,
   Save,
-  MessageSquare
+  MessageSquare,
+  Download,
+  Upload,
+  RefreshCw,
+  HardDriveDownload,
+  FileCheck,
+  AlertTriangle,
+  Trash2,
+  Lock,
+  FileSpreadsheet,
+  Check
 } from 'lucide-react';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
+import { Modal } from '../common/Modal';
 import { useLanguage } from '../../context/LanguageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { api } from '../../services/api';
@@ -26,6 +37,7 @@ import { api } from '../../services/api';
 export const SettingsView: React.FC = () => {
   const { t, language } = useLanguage();
   const { showToast } = useNotification();
+  const backupFileInputRef = useRef<HTMLInputElement>(null);
 
   const [criticalSla, setCriticalSla] = useState(2);
   const [highSla, setHighSla] = useState(4);
@@ -35,6 +47,51 @@ export const SettingsView: React.FC = () => {
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [smsAlerts, setSmsAlerts] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
+  const [isRestoringBaseline, setIsRestoringBaseline] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  // Baseline Commitment & Purge Workflow State
+  const [baselineStatus, setBaselineStatus] = useState<{
+    isCommitted: boolean;
+    committedAt: string | null;
+    committedBy: string | null;
+    notes: string | null;
+    hasCommittedBaselineOnDisk: boolean;
+    stats?: {
+      machines: number;
+      buildings: number;
+      locations: number;
+      technicians: number;
+      spareParts: number;
+      tickets: number;
+    };
+  } | null>(null);
+
+  const [isCommitModalOpen, setIsCommitModalOpen] = useState(false);
+  const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
+  const [adminName, setAdminName] = useState('مدير النظام');
+  const [commitNotes, setCommitNotes] = useState('البيانات الحقيقية المعتمدة لأسطول أجهزة البيع الذاتي للشركة');
+  const [adminAgreement, setAdminAgreement] = useState(false);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [isPurging, setIsPurging] = useState(false);
+  const [purgeDeleteCommitted, setPurgeDeleteCommitted] = useState(false);
+
+  const [dbStats, setDbStats] = useState<{
+    totalMachines: number;
+    totalBuildings: number;
+    totalLocations: number;
+    totalTickets: number;
+    totalSpareParts: number;
+    totalTechnicians: number;
+  }>({
+    totalMachines: 0,
+    totalBuildings: 0,
+    totalLocations: 0,
+    totalTickets: 0,
+    totalSpareParts: 0,
+    totalTechnicians: 0
+  });
 
   // Customer Support & Hotline Settings
   const [supportPhone, setSupportPhone] = useState('800-123-4567');
@@ -43,8 +100,36 @@ export const SettingsView: React.FC = () => {
   const [supportWhatsapp, setSupportWhatsapp] = useState('+966-50-000-0000');
   const [isSavingSupport, setIsSavingSupport] = useState(false);
 
+  const loadStats = () => {
+    api.getDatabaseInfo().then(info => {
+      setDbStats({
+        totalMachines: info.totalMachines,
+        totalBuildings: info.totalBuildings,
+        totalLocations: info.totalLocations,
+        totalTickets: info.totalTickets,
+        totalSpareParts: info.totalSpareParts,
+        totalTechnicians: info.totalTechnicians
+      });
+    }).catch(() => {});
+  };
+
+  const loadBaselineStatus = () => {
+    api.getBaselineStatus().then(status => {
+      if (status) setBaselineStatus(status);
+    }).catch(() => {});
+  };
+
   // Load existing settings
   useEffect(() => {
+    loadStats();
+    loadBaselineStatus();
+
+    const handleUpdate = () => {
+      loadStats();
+      loadBaselineStatus();
+    };
+    window.addEventListener('vending-fleet-data-updated', handleUpdate);
+
     api.getSettings().then(s => {
       if (s) {
         if (s.criticalSla !== undefined) setCriticalSla(s.criticalSla);
@@ -59,6 +144,10 @@ export const SettingsView: React.FC = () => {
         if (s.supportWhatsapp) setSupportWhatsapp(s.supportWhatsapp);
       }
     }).catch(() => {});
+
+    return () => {
+      window.removeEventListener('vending-fleet-data-updated', handleUpdate);
+    };
   }, []);
 
   const handleSaveSla = async (e: React.FormEvent) => {
@@ -106,13 +195,110 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleResetData = async () => {
-    if (!window.confirm('إعادة ضبط جميع بيانات الأسطول والتذاكر إلى الحالة الأولية النظيفة؟')) return;
+  // Commit Real Data as Authoritative Master Baseline (Admin Confirmation)
+  const handleCommitBaseline = async () => {
+    if (!adminAgreement) {
+      showToast(t('error'), 'يرجى الإقرار والموافقة بصفتك مدير النظام على اعتماد هذه البيانات', 'error');
+      return;
+    }
 
+    setIsCommitting(true);
+    try {
+      await api.commitMasterBaseline({
+        confirmedBy: adminName.trim() || 'مدير النظام',
+        notes: commitNotes.trim()
+      });
+      showToast(t('success'), 'تم اعتماد وحفظ البيانات الحقيقية الحالية بنجاح كنسخة أساسية دائمة للنظام!', 'success');
+      setIsCommitModalOpen(false);
+      loadStats();
+      loadBaselineStatus();
+    } catch (err: any) {
+      showToast(t('error'), err?.message || 'تعذر اعتماد النسخة الأساسية', 'error');
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  // Restore Master Baseline
+  const handleRestoreBaseline = async () => {
+    if (!window.confirm('هل أنت متأكد من استعادة النسخة الأساسية المعتمدة؟ سيتم تحميل البيانات التي تم اعتمادها وحفظها بواسطة مدير النظام.')) return;
+
+    setIsRestoringBaseline(true);
+    try {
+      const res = await api.restoreCommittedBaseline();
+      loadStats();
+      loadBaselineStatus();
+      showToast(t('success'), `تمت استعادة البيانات الأساسية المعتمدة بنجاح! (${res.machinesCount ?? dbStats.totalMachines} ماكينة معتمدة).`, 'success');
+    } catch (err: any) {
+      showToast(t('error'), err?.message || 'فشلت استعادة قاعدة البيانات الأساسية', 'error');
+    } finally {
+      setIsRestoringBaseline(false);
+    }
+  };
+
+  // Purge/Clean Data
+  const handlePurgeAll = async () => {
+    setIsPurging(true);
+    try {
+      await api.purgeDatabase({ deleteCommittedBaseline: purgeDeleteCommitted });
+      showToast(t('success'), 'تم تفريغ كافة البيانات بنجاح، قاعدة البيانات جاهزة الآن لاستقبال البيانات الحقيقية.', 'success');
+      setIsPurgeModalOpen(false);
+      loadStats();
+      loadBaselineStatus();
+    } catch (err: any) {
+      showToast(t('error'), err?.message || 'تعذر تفريغ البيانات', 'error');
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    setIsExporting(true);
+    try {
+      await api.exportFullBackup();
+      showToast(t('success'), 'تم إنشاء وتنزيل ملف النسخة الاحتياطية الكاملة للنظام بنجاح!', 'success');
+    } catch (err: any) {
+      showToast(t('error'), 'تعذر تصدير النسخة الاحتياطية', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImportBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+        const result = await api.restoreFullBackup(parsed);
+        loadStats();
+        loadBaselineStatus();
+        showToast(t('success'), `تمت استعادة النسخة الاحتياطية من الملف بنجاح! (${result.machinesCount} ماكينة)`, 'success');
+      } catch (err: any) {
+        showToast(t('error'), err?.message || 'فشلت قراءة أو استعادة ملف النسخة الاحتياطية', 'error');
+      } finally {
+        setIsImporting(false);
+        if (backupFileInputRef.current) backupFileInputRef.current.value = '';
+      }
+    };
+    reader.onerror = () => {
+      showToast(t('error'), 'تعذر قراءة ملف النسخة الاحتياطية', 'error');
+      setIsImporting(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleResetData = async () => {
     setIsResetting(true);
     try {
       await api.resetDatabase();
-      showToast(t('success'), 'تمت إعادة ضبط قاعدة البيانات بنجاح إلى النسخة الأولية!', 'success');
+      loadStats();
+      loadBaselineStatus();
+      showToast(t('success'), 'تمت إعادة ضبط قاعدة البيانات بنجاح!', 'success');
     } catch {
       showToast(t('error'), 'فشلت إعادة ضبط قاعدة البيانات', 'error');
     } finally {
@@ -176,21 +362,152 @@ export const SettingsView: React.FC = () => {
             </div>
           </Card>
 
-          {/* Database Reset Card */}
-          <Card title="Database Maintenance" subtitle="Development and demo reset">
-            <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              إعادة تحميل البيانات الأولية النظيفة التي تحتوي على المكائن، المباني، قطع الغيار والبلاغات الافتراضية.
-            </p>
-            <Button
-              variant="danger"
-              size="sm"
-              fullWidth
-              icon={RotateCcw}
-              isLoading={isResetting}
-              onClick={handleResetData}
-            >
-              Reset Seed Database
-            </Button>
+          {/* Database Master Baseline & Backup Card */}
+          <Card
+            title="إدارة واعتماد البيانات الأساسية الدائمة (Master Baseline)"
+            subtitle="Authoritative Master Baseline & Database Persistence"
+          >
+            <div className="space-y-4">
+              {/* Database Live Status & Baseline Badge */}
+              <div className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Database className="w-4 h-4 text-blue-400" />
+                    <span>حالة النسخة الأساسية:</span>
+                  </span>
+                  {baselineStatus?.isCommitted ? (
+                    <span className="text-[10px] font-bold font-mono px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>معتمدة ومحفوظة للنظام</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold font-mono px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>قاعدة بيانات أولية جاهزة للإدخال</span>
+                    </span>
+                  )}
+                </div>
+
+                {baselineStatus?.isCommitted && (
+                  <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-800/40 text-[11px] text-emerald-300 space-y-1">
+                    <div className="flex justify-between items-center font-medium">
+                      <span>المسؤول المعتمد:</span>
+                      <strong className="text-white">{baselineStatus.committedBy || 'مدير النظام'}</strong>
+                    </div>
+                    {baselineStatus.committedAt && (
+                      <div className="flex justify-between items-center text-[10px] text-emerald-400/80">
+                        <span>تاريخ الاعتماد:</span>
+                        <span dir="ltr">{new Date(baselineStatus.committedAt).toLocaleString('ar-SA')}</span>
+                      </div>
+                    )}
+                    {baselineStatus.notes && (
+                      <p className="text-[10px] text-slate-400 pt-1 border-t border-emerald-800/30">
+                        {baselineStatus.notes}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Database Record Live Counts */}
+                <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-800/80">
+                  <div className="bg-slate-900/80 p-2 rounded-lg">
+                    <span className="block text-sm font-bold text-slate-100 font-mono">{dbStats.totalMachines}</span>
+                    <span className="text-[10px] text-slate-400">ماكينة مسجلة</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-2 rounded-lg">
+                    <span className="block text-sm font-bold text-slate-100 font-mono">{dbStats.totalBuildings}</span>
+                    <span className="text-[10px] text-slate-400">مبنى وموقع</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-2 rounded-lg">
+                    <span className="block text-sm font-bold text-slate-100 font-mono">{dbStats.totalSpareParts}</span>
+                    <span className="text-[10px] text-slate-400">قطع غيار</span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed">
+                يمكنك بعد الانتهاء من إدخال أو استيراد البيانات الحقيقية للشركة اعتمادها وتثبيتها كنسخة أساسية دائمة بضغطة زر وتأكيد مدير النظام.
+              </p>
+
+              {/* Action 1: Commit Master Baseline with Admin Confirmation */}
+              <Button
+                variant="primary"
+                size="sm"
+                fullWidth
+                icon={ShieldCheck}
+                onClick={() => {
+                  setAdminAgreement(false);
+                  setIsCommitModalOpen(true);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 shadow-lg shadow-emerald-950/50"
+              >
+                اعتماد وحفظ البيانات الحقيقية (تأكيد مدير النظام)
+              </Button>
+
+              {/* Action 2: Restore Master Baseline */}
+              <Button
+                variant="secondary"
+                size="sm"
+                fullWidth
+                icon={RefreshCw}
+                isLoading={isRestoringBaseline}
+                disabled={!baselineStatus?.hasCommittedBaselineOnDisk}
+                onClick={handleRestoreBaseline}
+                className="border border-slate-700 hover:border-slate-600 text-slate-200"
+              >
+                استعادة النسخة الأساسية المعتمدة
+              </Button>
+
+              {/* Action 3: Purge & Clean Slate */}
+              <Button
+                variant="ghost"
+                size="sm"
+                fullWidth
+                icon={Trash2}
+                onClick={() => {
+                  setPurgeDeleteCommitted(false);
+                  setIsPurgeModalOpen(true);
+                }}
+                className="border border-rose-900/50 hover:bg-rose-950/40 text-rose-400 text-xs"
+              >
+                تفريغ وتنظيف قاعدة البيانات (بدء صفحة نظيفة)
+              </Button>
+
+              {/* Action 4 & 5: Backup Export and File Import */}
+              <div className="pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={Download}
+                  isLoading={isExporting}
+                  onClick={handleExportBackup}
+                  className="text-[11px] py-1.5 text-slate-300"
+                >
+                  تصدير ملف (JSON)
+                </Button>
+
+                <div>
+                  <input
+                    type="file"
+                    ref={backupFileInputRef}
+                    accept=".json"
+                    onChange={handleImportBackupFile}
+                    className="hidden"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    fullWidth
+                    icon={Upload}
+                    isLoading={isImporting}
+                    onClick={() => backupFileInputRef.current?.click()}
+                    className="text-[11px] py-1.5 text-slate-300"
+                  >
+                    استيراد ملف (JSON)
+                  </Button>
+                </div>
+              </div>
+            </div>
           </Card>
         </div>
 
@@ -394,6 +711,173 @@ export const SettingsView: React.FC = () => {
           </Card>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* MODAL 1: Admin Confirmation & Master Baseline Commitment                  */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isCommitModalOpen}
+        onClose={() => !isCommitting && setIsCommitModalOpen(false)}
+        title="تأكيد مدير النظام - اعتماد وحفظ النسخة الأساسية الدائمة"
+        subtitle="Authoritative Master Baseline Commitment"
+        maxWidth="lg"
+      >
+        <div className="space-y-4 text-slate-200">
+          <div className="p-3.5 bg-emerald-950/40 border border-emerald-800/60 rounded-xl space-y-2">
+            <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+              <ShieldCheck className="w-5 h-5 shrink-0" />
+              <span>اعتماد البيانات الحقيقية كمرجع تشغيلي أساسي للنظام</span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              عند التأكيد، سيقوم النظام بحفظ كافة السجلات الحقيقية المدخلة حالياً كـ (Authoritative Master Baseline). وسيتم استدعاؤها واعتمادها تلقائياً عند أي تشغيل للتطبيق أو عند نشره لأي جهة أو شركة أخرى.
+            </p>
+          </div>
+
+          {/* Current Database Summary to be Committed */}
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+            <span className="text-xs text-slate-400 block mb-2 font-semibold">إحصائيات البيانات التي سيتم اعتمادها وحفظها:</span>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                <span className="block text-base font-bold text-emerald-400 font-mono">{dbStats.totalMachines}</span>
+                <span className="text-[10px] text-slate-400">ماكينة بيع ذاتي</span>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                <span className="block text-base font-bold text-blue-400 font-mono">{dbStats.totalBuildings}</span>
+                <span className="text-[10px] text-slate-400">مبنى وموقع</span>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                <span className="block text-base font-bold text-purple-400 font-mono">{dbStats.totalSpareParts}</span>
+                <span className="text-[10px] text-slate-400">قطعة غيار</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Admin Name & Notes Inputs */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                اسم المسؤول المعتمد (مدير النظام) *
+              </label>
+              <input
+                type="text"
+                value={adminName}
+                onChange={e => setAdminName(e.target.value)}
+                placeholder="مثال: مدير العمليات / مدير الصيانة"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                ملاحظات أو مسمى النسخة المعتمدة
+              </label>
+              <input
+                type="text"
+                value={commitNotes}
+                onChange={e => setCommitNotes(e.target.value)}
+                placeholder="مثال: النسخة الأساسية المعتمدة لأسطول 2026"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          {/* Explicit Confirmation Checkbox */}
+          <div className="p-3 bg-emerald-950/30 border border-emerald-800/40 rounded-xl">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={adminAgreement}
+                onChange={e => setAdminAgreement(e.target.checked)}
+                className="mt-0.5 rounded bg-slate-900 border-slate-700 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+              />
+              <span className="text-xs text-slate-200 leading-relaxed">
+                <strong>إقرار وموافقة مدير النظام:</strong> أقر بصفتي مدير النظام بأن هذه هي البيانات الحقيقية والنهائية المعتمدة، وأوافق على حفظها كنسخة أساسية دائمة للنظام (Master Baseline) تُسترجع في أي وقت وتُعتمد عند النشر.
+              </span>
+            </label>
+          </div>
+
+          {/* Modal Footer Actions */}
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsCommitModalOpen(false)}
+              disabled={isCommitting}
+            >
+              إلغاء
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={ShieldCheck}
+              isLoading={isCommitting}
+              disabled={!adminAgreement || !adminName.trim() || isCommitting}
+              onClick={handleCommitBaseline}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+            >
+              تأكيد واعتماد النسخة الأساسية الآن
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* MODAL 2: Database Purge / Clean Slate Confirmation                        */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isPurgeModalOpen}
+        onClose={() => !isPurging && setIsPurgeModalOpen(false)}
+        title="تفريغ وتنظيف قاعدة البيانات (بدء صفحة بيضاء)"
+        subtitle="Purge Database & Initialize Clean Slate"
+        maxWidth="md"
+      >
+        <div className="space-y-4 text-slate-200">
+          <div className="p-3.5 bg-rose-950/40 border border-rose-800/60 rounded-xl space-y-2">
+            <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <span>تنبيه: مسح البيانات لتجهيز النظام لاستقبال البيانات الحقيقية</span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              سيتم تفريغ كافة سجلات الماكينات والمواقع وقطع الغيار والتذاكر التجريبية، وتهيئة قاعدة البيانات في حالة نظيفة (Clean Database) جاهزة للإدخال اليدوي أو استيراد ملفات الإكسيل المخصصة.
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={purgeDeleteCommitted}
+                onChange={e => setPurgeDeleteCommitted(e.target.checked)}
+                className="mt-0.5 rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500 w-4 h-4"
+              />
+              <span className="text-xs text-slate-300">
+                حذف ملف النسخة الأساسية المعتمدة (Master Baseline) من الخادم أيضاً والبدء من الصفر تماماً.
+              </span>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsPurgeModalOpen(false)}
+              disabled={isPurging}
+            >
+              إلغاء
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={Trash2}
+              isLoading={isPurging}
+              onClick={handlePurgeAll}
+              className="bg-rose-600 hover:bg-rose-500 text-white font-semibold"
+            >
+              تأكيد تفريغ قاعدة البيانات الآن
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

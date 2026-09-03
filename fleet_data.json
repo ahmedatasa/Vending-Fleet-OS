@@ -5,48 +5,7 @@
   "machines": [],
   "tickets": [],
   "technicians": [],
-  "categories": [
-    {
-      "id": "cat-001",
-      "name": "Cooling & Refrigeration",
-      "nameAr": "أنظمة التبريد والكمبروسر",
-      "code": "REF",
-      "description": "Compressors, condensers, evaporators, thermostats, fans",
-      "count": 0
-    },
-    {
-      "id": "cat-002",
-      "name": "Payment & Validation",
-      "nameAr": "أجهزة الدفع وقارئات البطاقات",
-      "code": "PAY",
-      "description": "Mada POS, card readers, bill validators, coin mechs",
-      "count": 0
-    },
-    {
-      "id": "cat-003",
-      "name": "Motors & Spirals",
-      "nameAr": "المحركات والحلزونات والتروس",
-      "code": "MTR",
-      "description": "Dispense spiral motors, dual motors, augers, gears",
-      "count": 0
-    },
-    {
-      "id": "cat-004",
-      "name": "Electronics & Boards",
-      "nameAr": "اللوحات الإلكترونية والحساسات",
-      "code": "PCB",
-      "description": "Main control boards, power supplies, drop sensors, keypads",
-      "count": 0
-    },
-    {
-      "id": "cat-005",
-      "name": "Mechanical & Chassis",
-      "nameAr": "الهيكل الميكانيكي والأقفال",
-      "code": "MECH",
-      "description": "Locks, handles, hinges, glass doors, delivery chute flaps",
-      "count": 0
-    }
-  ],
+  "categories": [],
   "spareParts": [],
   "suppliers": [],
   "partRequests": [],
@@ -55,57 +14,41 @@
     {
       "id": "usr-admin-01",
       "email": "admin@vendingfleet.com",
-      "fullName": "Sultan Al-Otaibi",
+      "fullName": "مدير النظام",
       "phone": "+966 50 123 4567",
       "role": "SUPER_ADMIN",
       "isActive": true,
-      "createdAt": "2024-01-01T00:00:00Z",
-      "updatedAt": "2026-02-26T12:00:00Z"
-    },
-    {
-      "id": "usr-mgr-01",
-      "email": "manager@vendingfleet.com",
-      "fullName": "Faisal Al-Ghamdi",
-      "phone": "+966 50 234 5678",
-      "role": "MAINTENANCE_MANAGER",
-      "isActive": true,
-      "createdAt": "2024-01-05T00:00:00Z",
-      "updatedAt": "2026-02-25T15:00:00Z"
-    },
-    {
-      "id": "usr-tech-01",
-      "email": "tech@vendingfleet.com",
-      "fullName": "Tariq Al-Mansoor",
-      "phone": "+966 50 345 6789",
-      "role": "TECHNICIAN",
-      "isActive": true,
-      "createdAt": "2024-01-10T00:00:00Z",
-      "updatedAt": "2026-02-26T09:00:00Z"
-    },
-    {
-      "id": "usr-wrh-01",
-      "email": "warehouse@vendingfleet.com",
-      "fullName": "Yousef Al-Harbi",
-      "phone": "+966 50 456 7890",
-      "role": "WAREHOUSE",
-      "isActive": true,
-      "createdAt": "2024-01-15T00:00:00Z",
-      "updatedAt": "2026-02-24T16:00:00Z"
+      "createdAt": "2026-09-03T00:00:00.000Z",
+      "updatedAt": "2026-09-03T00:00:00.000Z",
+      "lastLoginAt": "2026-09-03T00:00:00.000Z"
     }
   ],
-  "auditLogs": [],
+  "auditLogs": [
+    {
+      "id": "aud-init-001",
+      "action": "DATABASE_INITIALIZED",
+      "entityName": "System",
+      "entityId": "ROOT",
+      "userName": "مدير النظام",
+      "newValues": {
+        "message": "قاعدة البيانات نظيفة تماماً وجاهزة لاستقبال وتخزين البيانات الحقيقية للشركة."
+      },
+      "timestamp": "2026-09-03T00:00:00.000Z",
+      "createdAt": "2026-09-03T00:00:00.000Z"
+    }
+  ],
   "importBatches": [],
   "importRows": [],
   "settings": {
-    "criticalSla": 2,
-    "highSla": 4,
-    "mediumSla": 8,
-    "lowSla": 24,
-    "emailAlerts": true,
-    "smsAlerts": true,
-    "supportPhone": "800-123-4567",
+    "organizationName": "Vending Fleet Operations Platform",
+    "lowStockAlertThreshold": 5,
+    "maintenanceIntervalDays": 30,
+    "slaBreachHours": 24,
     "supportEmail": "support@vendingfleet.com",
-    "supportHoursAr": "خدمة العملاء على مدار 24 ساعة طوال أيام الأسبوع",
     "supportWhatsapp": "+966-50-000-0000"
-  }
+  },
+  "isBaselineCommitted": false,
+  "baselineCommittedAt": null,
+  "baselineCommittedBy": null,
+  "baselineNotes": null
 }
